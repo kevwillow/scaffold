@@ -216,9 +216,11 @@ CASCADE_HISTORY_VERSION = 1
 
 
 def _enforce_history_entry_size(entry: dict) -> dict:
-    """Return a copy of entry with preset_data dropped if the serialized
-    entry exceeds HISTORY_ENTRY_MAX_BYTES. The display/timestamp/exit_code
-    fields are always preserved so the user still sees the run happened."""
+    """Return a copy of entry with its restorable payload dropped if the
+    serialized entry exceeds HISTORY_ENTRY_MAX_BYTES. The payload is
+    preset_data for command history and config for cascade runs. The
+    display/timestamp/exit_code fields are always preserved so the user
+    still sees the run happened."""
     try:
         size = len(json.dumps(entry).encode("utf-8"))
     except (TypeError, ValueError):
@@ -226,7 +228,9 @@ def _enforce_history_entry_size(entry: dict) -> dict:
     if size <= HISTORY_ENTRY_MAX_BYTES:
         return entry
     shrunk = dict(entry)
-    shrunk["preset_data"] = None
+    for key in ("preset_data", "config"):
+        if key in shrunk:
+            shrunk[key] = None
     shrunk["_oversized"] = True
     return shrunk
 
@@ -266,15 +270,11 @@ def load_tool(path: str | Path) -> dict:
             f"Schema file too large ({size:,} bytes, limit {MAX_SCHEMA_SIZE:,}): {p.name}"
         )
     try:
-        text = p.read_text(encoding="utf-8")
+        return _read_json_file(p)
     except PermissionError:
         raise RuntimeError(f"Permission denied: {p}")
     except OSError as e:
         raise RuntimeError(f"Cannot read file: {p} — {e}")
-    if text.startswith("\ufeff"):
-        text = text[1:]
-    try:
-        return json.loads(text)
     except json.JSONDecodeError as e:
         raise RuntimeError(f"Invalid JSON in {p} — {e}")
 
@@ -283,10 +283,16 @@ def _read_json_file(path) -> dict:
     """Read a JSON file, stripping UTF-8 BOM if present.
 
     Accepts str or Path. Raises OSError on read failure and
-    json.JSONDecodeError on parse failure. Callers handle errors.
+    json.JSONDecodeError on parse failure, including non-UTF-8 content.
+    Callers handle errors.
     """
     p = Path(path)
-    text = p.read_text(encoding="utf-8")
+    try:
+        text = p.read_text(encoding="utf-8")
+    except UnicodeDecodeError as e:
+        # e.g. UTF-16 written by PowerShell's `>`. Re-raise as a parse error
+        # so the (JSONDecodeError, OSError) callers handle it.
+        raise json.JSONDecodeError(f"File is not valid UTF-8 ({e.reason})", "", e.start) from e
     if text.startswith("\ufeff"):
         text = text[1:]
     return json.loads(text)
@@ -352,6 +358,11 @@ def validate_tool(data: dict) -> list[str]:
     for key in ("tool", "binary", "description", "arguments"):
         if key not in data:
             errors.append(f"Missing required top-level key: \"{key}\"")
+
+    # null is tolerated (the picker shows it as blank); other non-strings
+    # crash the picker's html.escape.
+    if data.get("description") is not None and not isinstance(data["description"], str):
+        errors.append("\"description\" must be a string")
 
     # Validate "tool" field shape — security-sensitive (used as a directory
     # name under presets/ and default_presets/; must not enable path traversal).
@@ -427,7 +438,7 @@ def validate_tool(data: dict) -> list[str]:
         _check_dependencies(data["arguments"], "top-level", errors)
 
     if data.get("elevated") is not None:
-        if data["elevated"] not in VALID_ELEVATED:
+        if not isinstance(data["elevated"], str) or data["elevated"] not in VALID_ELEVATED:
             errors.append(
                 f"Invalid \"elevated\" value \"{data['elevated']}\" "
                 f"(must be one of: {', '.join(sorted(VALID_ELEVATED))}, or null)"
@@ -518,7 +529,7 @@ def _validate_args(args: list, scope: str, errors: list) -> None:
 
         if "type" in arg:
             t = arg["type"]
-            if t not in VALID_TYPES:
+            if not isinstance(t, str) or t not in VALID_TYPES:
                 errors.append(f"{prefix}: invalid type \"{t}\" (must be one of: {', '.join(sorted(VALID_TYPES))})")
             if t in ("enum", "multi_enum"):
                 choices = arg.get("choices")
@@ -535,7 +546,8 @@ def _validate_args(args: list, scope: str, errors: list) -> None:
                             f"Argument \"{flag_label}\": required {t} must specify a non-null \"default\""
                         )
 
-        if "separator" in arg and arg["separator"] not in VALID_SEPARATORS:
+        if "separator" in arg and (not isinstance(arg["separator"], str)
+                                   or arg["separator"] not in VALID_SEPARATORS):
             errors.append(f"{prefix}: invalid separator \"{arg['separator']}\" (must be one of: {', '.join(sorted(VALID_SEPARATORS))})")
 
         if "examples" in arg and arg["examples"] is not None:
@@ -643,7 +655,9 @@ def _check_groups(args: list, scope: str, errors: list) -> None:
         if not isinstance(arg, dict):
             continue
         g = arg.get("group")
-        if g:
+        if g and not isinstance(g, str):
+            errors.append(f"{scope}: argument \"{arg.get('name', '?')}\": \"group\" must be a string or null")
+        elif g:
             groups.setdefault(g, []).append(arg.get("name", "?"))
     for g, members in groups.items():
         if len(members) < 2:
@@ -657,14 +671,16 @@ def _check_dependencies(args: list, scope: str, errors: list) -> None:
         if not isinstance(arg, dict):
             continue
         flag = arg.get("flag")
-        if flag:
+        if isinstance(flag, str) and flag:
             flags.add(flag)
     for arg in args:
         if not isinstance(arg, dict):
             continue
         dep = arg.get("depends_on")
-        if dep and dep not in flags:
-            name = arg.get("name", "?")
+        name = arg.get("name", "?")
+        if dep and not isinstance(dep, str):
+            errors.append(f"{scope}: argument \"{name}\": \"depends_on\" must be a string or null")
+        elif dep and dep not in flags:
             errors.append(f"{scope}: argument \"{name}\" depends on \"{dep}\" which does not exist in this scope")
 
 
@@ -948,7 +964,6 @@ def _check_already_elevated():
         except (AttributeError, RuntimeError):
             _already_elevated = False
     else:
-        import os
         _already_elevated = os.geteuid() == 0
     return _already_elevated
 
@@ -1122,7 +1137,14 @@ LIGHT_WARNING_BORDER = "#ffc107"
 def _detect_system_dark() -> bool:
     """Return True if the OS is currently using a dark color scheme."""
     try:
-        scheme = QApplication.styleHints().colorScheme()
+        hints = QApplication.styleHints()
+        # apply_theme pins an explicit scheme (Qt 6.8+), and colorScheme()
+        # reports that override instead of the OS value until it is cleared.
+        try:
+            hints.unsetColorScheme()
+        except AttributeError:
+            pass  # Qt < 6.8 — no override API
+        scheme = hints.colorScheme()
         return scheme == Qt.ColorScheme.Dark
     except AttributeError:
         pass
@@ -3091,20 +3113,17 @@ def _cascade_path_is_safe(base: Path, value: str) -> bool:
         return False
     if p.is_absolute():
         return True
+    # A backslash is a separator on Windows but a filename char on POSIX.
+    # Cascades are shared across platforms, so a value must stay inside
+    # base under both readings.
     try:
-        resolved = (base / value).resolve()
         base_resolved = base.resolve()
+        return all(
+            (base / v).resolve().is_relative_to(base_resolved)
+            for v in (value, str(value).replace("\\", "/"))
+        )
     except (OSError, ValueError):
         return False
-    try:
-        return resolved.is_relative_to(base_resolved)
-    except AttributeError:
-        # Python <3.9 fallback — scaffold targets 3.9+ so this is defensive
-        try:
-            resolved.relative_to(base_resolved)
-            return True
-        except ValueError:
-            return False
 
 
 def _check_cascade_dependencies(cascade_data: dict) -> tuple[list[str], list[str]]:
@@ -10475,6 +10494,11 @@ class MainWindow(QMainWindow):
             data = load_tool(path)
         except RuntimeError as e:
             self._show_load_error(str(e))
+            return
+        if not isinstance(data, dict):
+            self._show_load_error(
+                f"Invalid tool schema: top-level JSON must be an object, got {type(data).__name__}"
+            )
             return
 
         # Three-tier _format check: correct -> silent, missing -> warn, wrong -> reject
