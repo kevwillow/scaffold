@@ -10082,7 +10082,6 @@ class MainWindow(QMainWindow):
         # Find all matches (case-insensitive)
         doc = self.output.document()
         cursor = QTextCursor(doc)
-        flags = doc.FindFlag(0)  # no flags = forward, case-insensitive by default
         # QTextDocument.find is case-insensitive by default when no FindCaseSensitively flag is set
         while True:
             cursor = doc.find(query, cursor)
@@ -10239,7 +10238,14 @@ class MainWindow(QMainWindow):
         if path is None:
             return
         try:
-            _atomic_write_json(path, values)
+            # Owner-only umask so the temp file is never world-readable in the
+            # shared temp dir before the chmod below (the chmod still covers
+            # a pre-existing file, whose mode the umask cannot change).
+            old_umask = os.umask(0o077)
+            try:
+                _atomic_write_json(path, values)
+            finally:
+                os.umask(old_umask)
             try:
                 os.chmod(path, 0o600)
             except OSError:
@@ -10566,6 +10572,8 @@ class MainWindow(QMainWindow):
         self._copy_password_choice = None
         # Kill any running process
         self._elapsed_timer.stop()
+        self._timeout_timer.stop()
+        self._progress_label.setText("")
         self._teardown_process()
 
         # Preserve output content during chain execution
@@ -10820,8 +10828,16 @@ class MainWindow(QMainWindow):
 
     def _on_back(self) -> None:
         """Return to the tool picker, stopping any running process first."""
-        # Kill any running process before going back
+        # Kill any running process before going back. _teardown_process does
+        # no UI reset and the picker's Back reuses this form, so reset here.
         self._teardown_process()
+        self._elapsed_timer.stop()
+        self._timeout_timer.stop()
+        self._progress_label.setText("")
+        if hasattr(self, "run_btn"):
+            self.run_btn.setText("Run")
+            self._style_run_btn()
+            self._update_preview()
         self._show_picker()
 
     def _on_custom_paths(self) -> None:
@@ -11189,13 +11205,11 @@ class MainWindow(QMainWindow):
     def _update_preview(self) -> None:
         """Rebuild the command preview and toggle Run button availability."""
         missing = self.form.validate_required()
-        cmd, display = self.form.build_command()
+        cmd, _ = self.form.build_command()
         extra_count = len(self.form.get_extra_flags())
         if self.form.is_elevation_checked():
             elev_cmd, _ = get_elevation_command(cmd)
-            extra_count = len(self.form.get_extra_flags())
             cmd = elev_cmd
-            display = _format_display(elev_cmd)
         sub = self.form.sub_combo.currentData() if self.form.sub_combo else None
         masked_cmd = self.form._mask_passwords_for_display(cmd)
         html = _colored_preview_html(masked_cmd, extra_count, subcommand=sub)
@@ -11376,13 +11390,6 @@ class MainWindow(QMainWindow):
         """Escalate to SIGKILL if the process did not exit after SIGTERM."""
         if not self.process or self.process.state() == QProcess.ProcessState.NotRunning:
             return
-        if not self._elevated_run and sys.platform != "win32":
-            pid = self.process.processId()
-            if pid > 0:
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError, OSError):
-                    pass
         self.process.kill()
 
     def _teardown_process(self) -> None:
@@ -11464,9 +11471,16 @@ class MainWindow(QMainWindow):
             )
             return
 
-        cmd, display = self.form.build_command()
+        cmd, _ = self.form.build_command()
         if not cmd:
             return
+
+        # QProcess looks a bare program name up on the parent's PATH, not on
+        # the child env set below, so resolve custom-PATH binaries here.
+        if _get_custom_paths():
+            resolved = shutil.which(cmd[0], path=_extended_path())
+            if resolved:
+                cmd = [resolved] + cmd[1:]
 
         # Handle elevation
         self._elevated_run = False
@@ -11476,7 +11490,6 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Elevation Not Available", error)
                 return
             cmd = elev_cmd
-            display = _format_display(cmd)
             self._elevated_run = True
 
         program = cmd[0]
@@ -11594,7 +11607,7 @@ class MainWindow(QMainWindow):
         if self._error_reported:
             # _on_error already handled UI and recorded history; just
             # clear process and return — no double-record needed.
-            self.process = None
+            self._release_process()
             return
         elapsed_str = ""
         if self._run_start_time is not None:
@@ -11631,7 +11644,19 @@ class MainWindow(QMainWindow):
         self.run_btn.setText("Run")
         self._style_run_btn()
         self._update_preview()
+        self._release_process()
+
+    def _release_process(self) -> None:
+        """Drop the finished QProcess and schedule its deletion.
+
+        Without deleteLater every run would leave a dead QProcess parented
+        to the window. Deletion is deferred, so this is safe from inside
+        the process's own finished/errorOccurred handlers.
+        """
+        proc = self.process
         self.process = None
+        if proc is not None:
+            proc.deleteLater()
 
     def _on_error(self, error) -> None:
         """Handle QProcess errors, printing a descriptive message to the output panel."""
@@ -11653,6 +11678,8 @@ class MainWindow(QMainWindow):
             QProcess.ProcessError.ReadError: "Read error communicating with process.",
         }
         msg = error_messages.get(error, f"Unknown process error ({error}).")
+        # Flush first: on a crash Qt has already buffered the last output.
+        self._flush_output()
         self._append_output(f"\n--- {msg} ---\n", COLOR_ERR)
         self.statusBar().showMessage(msg)
         # Record history for the errored run
@@ -11671,11 +11698,10 @@ class MainWindow(QMainWindow):
         # Clean up timers and process — needed for FailedToStart where
         # _on_finished() is never called.  Harmless double-set for Crashed.
         self._timeout_timer.stop()
-        self._flush_output()
         self._elapsed_timer.stop()
         self._force_kill_timer.stop()
         self._run_start_time = None
-        self.process = None
+        self._release_process()
 
     # ------------------------------------------------------------------
     # Command history
@@ -11849,7 +11875,10 @@ class MainWindow(QMainWindow):
             tool_path = step.get("tool_path")
             if not tool_path or not Path(tool_path).exists():
                 return  # dialog already warned
+            prev_data = self.data
             self._load_tool_path(tool_path)
+            if self.data is prev_data:
+                return  # load failed or was cancelled; don't apply to the old form
             preset_path = step.get("preset_path")
             if preset_path and Path(preset_path).exists():
                 try:
