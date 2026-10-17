@@ -5637,7 +5637,7 @@ def _parse_run_cascade_args(argv: list[str]) -> tuple[dict, str | None]:
             if i + 1 >= len(argv):
                 return {}, "--vars requires a JSON file path"
             try:
-                loaded = json.loads(Path(argv[i + 1]).read_text(encoding="utf-8"))
+                loaded = json.loads(Path(argv[i + 1]).read_text(encoding="utf-8-sig"))
             except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
                 return {}, f"--vars failed to read {argv[i + 1]!r}: {exc}"
             if not isinstance(loaded, dict):
@@ -7815,16 +7815,6 @@ class CascadeSidebar(QDockWidget):
 
         user_base = _user_data_root()
 
-        # Tear down existing slot widgets (hide + detach synchronously to
-        # prevent ghost widgets on Linux where deleteLater timing differs)
-        for info in self._slot_widgets:
-            info["widget"].hide()
-            info["widget"].setParent(None)
-            info["widget"].deleteLater()
-        self._slot_widgets.clear()
-        self._slot_buttons.clear()
-        self._arrow_buttons.clear()
-
         def _resolve_step_path(rel: str) -> str:
             """Resolve a cascade step's relative path. Falls back to user-rooted
             absolute path so missing files still surface in the slot UI."""
@@ -7868,16 +7858,6 @@ class CascadeSidebar(QDockWidget):
         while len(new_slots) < CASCADE_INITIAL_SLOTS:
             new_slots.append(self._new_slot())
 
-        self._slots = new_slots
-        for i in range(len(self._slots)):
-            self._add_slot_widget(i)
-
-        self._loop_enabled = bool(data.get("loop_mode", False))
-        self._style_loop_btn()
-
-        self._stop_on_error = bool(data.get("stop_on_error", False))
-        self._style_stop_on_error_btn()
-
         # Load variables, validating each entry has required keys
         variables = []
         for var in data.get("variables", []):
@@ -7898,6 +7878,29 @@ class CascadeSidebar(QDockWidget):
             else:
                 var["apply_to"] = "all"
             variables.append(var)
+
+        # Everything above can raise ValueError; only touch the sidebar once
+        # the whole file has validated, so a rejected import leaves it intact.
+        # Tear down existing slot widgets (hide + detach synchronously to
+        # prevent ghost widgets on Linux where deleteLater timing differs)
+        for info in self._slot_widgets:
+            info["widget"].hide()
+            info["widget"].setParent(None)
+            info["widget"].deleteLater()
+        self._slot_widgets.clear()
+        self._slot_buttons.clear()
+        self._arrow_buttons.clear()
+
+        self._slots = new_slots
+        for i in range(len(self._slots)):
+            self._add_slot_widget(i)
+
+        self._loop_enabled = bool(data.get("loop_mode", False))
+        self._style_loop_btn()
+
+        self._stop_on_error = bool(data.get("stop_on_error", False))
+        self._style_stop_on_error_btn()
+
         self._cascade_variables = variables
 
         self._current_cascade_name = data.get("name") or None
@@ -8104,7 +8107,7 @@ class CascadeSidebar(QDockWidget):
         try:
             content = src.read_text(encoding="utf-8")
             Path(dest).write_text(content, encoding="utf-8")
-        except OSError as e:
+        except (OSError, UnicodeDecodeError) as e:
             self._main_window.statusBar().showMessage(f"Export failed: {e}")
             return
         self._main_window.statusBar().showMessage(f"Cascade exported: {src.stem}")
@@ -8684,7 +8687,10 @@ class CascadeSidebar(QDockWidget):
             if gen == self._chain_gen:
                 step_fn()
 
-        QTimer.singleShot(ms, self, _fire)
+        # Two-arg form: the (msec, context, functor) overload needs PySide6
+        # 6.6+. closeEvent's _chain_cleanup bumps the generation, so a timer
+        # outliving the window does nothing.
+        QTimer.singleShot(ms, _fire)
 
     def _chain_advance(self) -> None:
         """Load and run the next cascade step in the chain."""
@@ -9421,9 +9427,13 @@ class MainWindow(QMainWindow):
         # Restore geometry
         self.setMinimumSize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         geo = self.settings.value("window/geometry")
+        restored = False
         if geo:
-            self.restoreGeometry(geo)
-        else:
+            try:
+                restored = self.restoreGeometry(geo)
+            except TypeError:
+                pass  # non-bytes value, e.g. a hand-edited portable scaffold.ini
+        if not restored:
             self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
 
         # Drag and drop
@@ -10295,7 +10305,7 @@ class MainWindow(QMainWindow):
         for f in tmp.glob(f"scaffold_recovery_{_user_id()}_*.json"):
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
-                ts = data.get("_recovery_timestamp", 0)
+                ts = data.get("_recovery_timestamp", 0) if isinstance(data, dict) else None
                 # Defensive: non-numeric (or bool) timestamp — treat as stale.
                 # isinstance(True, int) is True in Python, so check bool first.
                 if type(ts) is bool or not isinstance(ts, (int, float)):
@@ -10303,7 +10313,7 @@ class MainWindow(QMainWindow):
                     continue
                 if (time.time() - ts) > AUTOSAVE_EXPIRY_HOURS * 3600:
                     f.unlink()
-            except (OSError, json.JSONDecodeError):
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
                 try:
                     f.unlink()
                 except OSError:
@@ -10382,7 +10392,7 @@ class MainWindow(QMainWindow):
             return
         try:
             recovery_data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             try:
                 path.unlink(missing_ok=True)
             except OSError:
@@ -11291,7 +11301,7 @@ class MainWindow(QMainWindow):
         try:
             content = preset_path.read_text(encoding="utf-8")
             _atomic_write_json(Path(dest), json.loads(content))
-        except (OSError, json.JSONDecodeError) as e:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
             self.statusBar().showMessage(f"Export failed: {e}")
             return
         self.statusBar().showMessage(f"Preset exported: {name}")
@@ -12189,7 +12199,7 @@ def main() -> None:
             _peek = json.loads(Path(parsed["cascade_path"]).read_text(encoding="utf-8"))
             if isinstance(_peek, dict) and _peek.get("_format") == "scaffold_cascade":
                 loop_mode_in_file = bool(_peek.get("loop_mode", False))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             pass
 
         loop_explicit = parsed["loop_count"] is not None

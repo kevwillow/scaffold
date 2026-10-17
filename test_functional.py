@@ -29651,6 +29651,1440 @@ _s210_settings.sync()
 app.processEvents()
 
 
+
+# =====================================================================
+# Section 211
+# =====================================================================
+print("\n--- Section 211: Core loading hardening (validation types, non-UTF-8, path safety) ---")
+
+_s211_tmp = Path(tempfile.mkdtemp(prefix="s211_"))
+_s211_base_schema = {"tool": "s211", "binary": "ls", "description": "d", "arguments": []}
+_s211_arg = {"name": "a", "flag": "--a", "type": "string"}
+
+# 211a: unhashable values for set/dict-keyed fields give validation errors,
+# not a TypeError out of validate_tool.
+_s211_shapes = {
+    "elevated": dict(_s211_base_schema, elevated=["always"]),
+    "type": dict(_s211_base_schema, arguments=[dict(_s211_arg, type=["string"])]),
+    "separator": dict(_s211_base_schema, arguments=[dict(_s211_arg, separator=["space"])]),
+    "group": dict(_s211_base_schema, arguments=[dict(_s211_arg, group=["g"])]),
+    "flag": dict(_s211_base_schema, arguments=[dict(_s211_arg, flag=["x"])]),
+    "depends_on": dict(_s211_base_schema, arguments=[dict(_s211_arg, depends_on=["x"])]),
+}
+for _s211_key, _s211_schema in _s211_shapes.items():
+    try:
+        _s211_errs = scaffold.validate_tool(_s211_schema)
+        check(isinstance(_s211_errs, list) and any(_s211_key in e for e in _s211_errs),
+              f"211a: list-valued \"{_s211_key}\" reported as a validation error (got {_s211_errs!r})")
+    except Exception as _s211_e:
+        check(False, f"211a: list-valued \"{_s211_key}\" raised {type(_s211_e).__name__}: {_s211_e}")
+# Subcommand scope goes through the same helpers
+try:
+    _s211_errs = scaffold.validate_tool(dict(_s211_base_schema, subcommands=[
+        {"name": "sub", "arguments": [dict(_s211_arg, group={"g": 1}, depends_on={"d": 1})]}]))
+    check(any("group" in e for e in _s211_errs) and any("depends_on" in e for e in _s211_errs),
+          f"211a: dict-valued group/depends_on in a subcommand reported (got {_s211_errs!r})")
+except Exception as _s211_e:
+    check(False, f"211a: dict-valued group/depends_on in a subcommand raised {type(_s211_e).__name__}")
+# Valid string values are still accepted
+_s211_ok = dict(_s211_base_schema, elevated="optional", arguments=[
+    dict(_s211_arg, separator="equals", group="g"),
+    {"name": "b", "flag": "--b", "type": "boolean", "group": "g", "depends_on": "--a"},
+])
+check(scaffold.validate_tool(_s211_ok) == [],
+      f"211a: valid string elevated/separator/group/depends_on still pass "
+      f"(got {scaffold.validate_tool(_s211_ok)!r})")
+
+# 211b: top-level "description" must be a string (null stays tolerated)
+for _s211_desc in (5, True, ["a"]):
+    _s211_errs = scaffold.validate_tool(dict(_s211_base_schema, description=_s211_desc))
+    check(any("description" in e for e in _s211_errs),
+          f"211b: description={_s211_desc!r} rejected (got {_s211_errs!r})")
+check(scaffold.validate_tool(dict(_s211_base_schema, description=None)) == [],
+      "211b: description=None still accepted")
+
+# 211c: non-UTF-8 files surface as the documented error types
+_s211_u16 = _s211_tmp / "utf16.json"
+_s211_u16.write_bytes(json.dumps(_s211_base_schema).encode("utf-16"))  # BOM 0xFF 0xFE
+_s211_cp = _s211_tmp / "cp1252.json"
+_s211_cp.write_bytes(b'{"tool": "caf\xe9"}')
+for _s211_f in (_s211_u16, _s211_cp):
+    try:
+        scaffold.load_tool(_s211_f)
+        check(False, f"211c: load_tool({_s211_f.name}) raised nothing")
+    except Exception as _s211_e:
+        check(isinstance(_s211_e, RuntimeError) and "UTF-8" in str(_s211_e),
+              f"211c: load_tool({_s211_f.name}) raises RuntimeError mentioning UTF-8 "
+              f"(got {type(_s211_e).__name__}: {_s211_e})")
+    try:
+        scaffold._read_user_json(_s211_f)
+        check(False, f"211c: _read_user_json({_s211_f.name}) raised nothing")
+    except Exception as _s211_e:
+        check(isinstance(_s211_e, json.JSONDecodeError),
+              f"211c: _read_user_json({_s211_f.name}) raises JSONDecodeError "
+              f"(got {type(_s211_e).__name__})")
+# UTF-8 with BOM still loads
+_s211_bom = _s211_tmp / "bom.json"
+_s211_bom.write_bytes(b"\xef\xbb\xbf" + json.dumps(_s211_base_schema).encode("utf-8"))
+try:
+    check(scaffold.load_tool(_s211_bom) == _s211_base_schema, "211c: UTF-8 BOM file still loads")
+except Exception as _s211_e:
+    check(False, f"211c: UTF-8 BOM file raised {type(_s211_e).__name__}: {_s211_e}")
+
+# 211d: a ToolPicker scan over a tools dir holding these files survives and
+# lists each bad file as invalid instead of raising out of the constructor.
+_s211_tools = _s211_tmp / "tools"
+_s211_tools.mkdir()
+shutil.copy(_s211_u16, _s211_tools / "utf16.json")
+(_s211_tools / "badtype.json").write_text(json.dumps(
+    dict(_s211_base_schema, tool="badtype", arguments=[dict(_s211_arg, type=["string"])])))
+(_s211_tools / "baddesc.json").write_text(json.dumps(dict(_s211_base_schema, tool="baddesc", description=5)))
+(_s211_tools / "good.json").write_text(json.dumps(dict(_s211_base_schema, tool="good")))
+_s211_orig_tools_dir = scaffold._tools_dir
+_s211_orig_bundled_tools_dir = scaffold._bundled_tools_dir
+scaffold._tools_dir = lambda: _s211_tools
+scaffold._bundled_tools_dir = lambda: _s211_tools / "_no_bundled_for_test"
+_s211_picker = None
+try:
+    _s211_picker = scaffold.ToolPicker()
+    _s211_by_name = {Path(e[0]).name: e for e in _s211_picker._entries}
+    for _s211_name in ("utf16.json", "badtype.json", "baddesc.json"):
+        _s211_ent = _s211_by_name.get(_s211_name)
+        check(_s211_ent is not None and _s211_ent[1] is None and _s211_ent[2],
+              f"211d: ToolPicker lists {_s211_name} as invalid with an error (got {_s211_ent!r})")
+    check(_s211_by_name.get("good.json") is not None and _s211_by_name["good.json"][1] is not None,
+          "211d: ToolPicker still loads the valid schema next to the bad ones")
+except Exception as _s211_e:
+    check(False, f"211d: ToolPicker() raised {type(_s211_e).__name__}: {_s211_e}")
+finally:
+    scaffold._tools_dir = _s211_orig_tools_dir
+    scaffold._bundled_tools_dir = _s211_orig_bundled_tools_dir
+    if _s211_picker is not None:
+        _s211_picker.close()
+        _s211_picker.deleteLater()
+
+# 211e: _load_tool_path on a file whose top level is not an object shows a
+# load error instead of raising AttributeError in the slot.
+_s211_win = scaffold.MainWindow()
+for _s211_content in ("[]", '"x"', "5"):
+    _s211_nd = _s211_tmp / "nondict.json"
+    _s211_nd.write_text(_s211_content)
+    with _patch_qmb("warning") as _s211_msgs:
+        try:
+            _s211_win._load_tool_path(str(_s211_nd))
+            _s211_raised = None
+        except Exception as _s211_e:
+            _s211_raised = _s211_e
+    check(_s211_raised is None and any(t == "Load Error" and "object" in m for t, m in _s211_msgs),
+          f"211e: _load_tool_path({_s211_content}) shows a Load Error "
+          f"(raised={type(_s211_raised).__name__ if _s211_raised else None}, msgs={_s211_msgs!r})")
+_s211_win.close()
+_s211_win.deleteLater()
+
+# 211f: the per-entry history cap also shrinks cascade-run entries, whose
+# bulk is in "config" rather than "preset_data".
+_s211_casc = {"id": "r1", "name": "c", "status": "completed", "steps": [],
+              "config": {"slots": [], "pad": "y" * (100 * 1024)}}
+_s211_shr = scaffold._enforce_history_entry_size(_s211_casc)
+check(_s211_shr.get("config") is None and _s211_shr.get("_oversized") is True,
+      "211f: oversized cascade entry has config dropped and _oversized set")
+check("preset_data" not in _s211_shr,
+      f"211f: cascade entry gains no spurious preset_data key (keys={sorted(_s211_shr)})")
+check(len(json.dumps(_s211_shr).encode("utf-8")) <= scaffold.HISTORY_ENTRY_MAX_BYTES,
+      "211f: shrunk cascade entry fits under HISTORY_ENTRY_MAX_BYTES")
+check(_s211_shr["id"] == "r1" and _s211_shr["status"] == "completed",
+      "211f: shrunk cascade entry keeps id/status")
+check(_s211_casc["config"] is not None, "211f: helper does not mutate the cascade entry")
+_s211_cmd = {"display": "x", "exit_code": 0, "timestamp": 1.0, "preset_data": {"k": "v" * (100 * 1024)}}
+_s211_cmd_shr = scaffold._enforce_history_entry_size(_s211_cmd)
+check(_s211_cmd_shr["preset_data"] is None and "config" not in _s211_cmd_shr,
+      "211f: command entry still drops only preset_data")
+
+# 211g: _detect_system_dark clears the app's own color-scheme override
+# before reading, so Theme > System after Light/Dark follows the OS.
+class _S211FakeHints:
+    def __init__(self, override, system):
+        self.override = override
+        self.system = system
+
+    def colorScheme(self):
+        if self.override == Qt.ColorScheme.Unknown:
+            return self.system
+        return self.override
+
+    def unsetColorScheme(self):
+        self.override = Qt.ColorScheme.Unknown
+
+
+class _S211FakeApp:
+    hints = None
+
+    @staticmethod
+    def styleHints():
+        return _S211FakeApp.hints
+
+    @staticmethod
+    def palette():
+        return QApplication.palette()
+
+
+class _S211OldHints:
+    """Qt < 6.8: colorScheme exists, unsetColorScheme does not."""
+    def colorScheme(self):
+        return Qt.ColorScheme.Dark
+
+
+_s211_orig_qapp = scaffold.QApplication
+scaffold.QApplication = _S211FakeApp
+try:
+    _S211FakeApp.hints = _S211FakeHints(Qt.ColorScheme.Light, Qt.ColorScheme.Dark)
+    check(scaffold._detect_system_dark() is True,
+          "211g: OS dark + app override Light -> _detect_system_dark() is True")
+    _S211FakeApp.hints = _S211FakeHints(Qt.ColorScheme.Dark, Qt.ColorScheme.Light)
+    check(scaffold._detect_system_dark() is False,
+          "211g: OS light + app override Dark -> _detect_system_dark() is False")
+    _S211FakeApp.hints = _S211OldHints()
+    try:
+        check(scaffold._detect_system_dark() is True,
+              "211g: hints without unsetColorScheme still read colorScheme()")
+    except Exception as _s211_e:
+        check(False, f"211g: hints without unsetColorScheme raised {type(_s211_e).__name__}")
+finally:
+    scaffold.QApplication = _s211_orig_qapp
+
+# 211h: _cascade_path_is_safe rejects backslash traversal on every platform
+_s211_pbase = _s211_tmp / "base"
+_s211_pbase.mkdir()
+check(scaffold._cascade_path_is_safe(_s211_pbase, "..\\..\\..\\Windows\\win.ini") is False,
+      r"211h: '..\..\..\Windows\win.ini' rejected")
+# On POSIX "a\b" is one name, so this climbs out of base; on Windows it
+# stays inside. The result must follow the platform's own reading.
+check(scaffold._cascade_path_is_safe(_s211_pbase, "a\\b/../../x.json") is (sys.platform == "win32"),
+      r"211h: mixed 'a\b/../../x.json' judged by the platform's own path reading")
+check(scaffold._cascade_path_is_safe(_s211_pbase, "sub\\x.json") is True,
+      r"211h: 'sub\x.json' inside base accepted")
+check(scaffold._cascade_path_is_safe(_s211_pbase, "a\\..\\x.json") is True,
+      r"211h: 'a\..\x.json' that stays inside base accepted")
+check(scaffold._cascade_path_is_safe(_s211_pbase, "../x.json") is False,
+      "211h: '../x.json' still rejected")
+
+shutil.rmtree(_s211_tmp, ignore_errors=True)
+app.processEvents()
+
+
+# =====================================================================
+# Section 212
+# =====================================================================
+print("\n--- Section 212: ToolForm masking, group deps, labels, shell formatters ---")
+
+# 212a: positional password values are masked (preview, run output, history)
+_s212_pw_tool = scaffold.normalize_tool({
+    "tool": "pwtool", "binary": "pwtool", "description": "x",
+    "arguments": [
+        {"name": "PW", "flag": "PASS", "type": "password", "positional": True},
+        {"name": "Pass", "flag": "--pass", "type": "password"},
+        {"name": "Target", "flag": "TARGET", "type": "string", "positional": True},
+    ],
+})
+check(scaffold.validate_tool(_s212_pw_tool) == [],
+      "212a: schema with positional password validates")
+_s212_form = scaffold.ToolForm(_s212_pw_tool)
+_s212_G = _s212_form.GLOBAL
+_s212_form._set_field_value((_s212_G, "PASS"), "hunter2")
+_s212_form._set_field_value((_s212_G, "--pass"), "flagpw")
+_s212_form._set_field_value((_s212_G, "TARGET"), "host1")
+_s212_cmd = _s212_form.build_command()[0]
+_s212_masked = _s212_form._mask_passwords_for_display(_s212_cmd)
+check("hunter2" in _s212_cmd,
+      f"212a: real command keeps positional password: {_s212_cmd}")
+check("hunter2" not in _s212_masked,
+      f"212a: positional password masked for display: {_s212_masked}")
+check(_s212_masked == ["pwtool", "--pass", "********", "********", "host1"],
+      f"212a: only password values masked, positional order kept: {_s212_masked}")
+_s212_form.deleteLater()
+
+# 212a: integration — command preview hides the positional password
+_s212_tmp = tempfile.mkdtemp()
+_s212_tool_path = Path(_s212_tmp) / "pwtool.json"
+_s212_tool_path.write_text(json.dumps(_s212_pw_tool))
+_s212_win = scaffold.MainWindow()
+_s212_win._load_tool_path(str(_s212_tool_path))
+app.processEvents()
+_s212_win.form._set_field_value((_s212_win.form.GLOBAL, "PASS"), "hunter2")
+_s212_win._update_preview()
+app.processEvents()
+_s212_preview = _s212_win.preview.toPlainText()
+check("hunter2" not in _s212_preview and "********" in _s212_preview,
+      f"212a: preview masks positional password: {_s212_preview!r}")
+_s212_win.close()
+_s212_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s212_tmp, ignore_errors=True)
+
+# 212b: PowerShell doubles typographic single quotes as well as ASCII '
+_s212_ps = scaffold._format_powershell(["tool", "x\u2019; calc; \u2019"])
+check(_s212_ps == "tool 'x\u2019\u2019; calc; \u2019\u2019'",
+      f"212b: PS doubles U+2019 so the quoting cannot be closed early: {_s212_ps!r}")
+for _s212_q in ("'", "\u2018", "\u2019", "\u201a", "\u201b"):
+    _s212_ps = scaffold._format_powershell(["tool", f"a{_s212_q}b"])
+    check(_s212_ps == f"tool 'a{_s212_q}{_s212_q}b'",
+          f"212b: PS doubles quote U+{ord(_s212_q):04X}: {_s212_ps!r}")
+_s212_ps = scaffold._format_powershell(["C:\\it\u2019s dir\\t.exe", "-v"])
+check(_s212_ps == "& 'C:\\it\u2019\u2019s dir\\t.exe' -v",
+      f"212b: PS doubles typographic quote in binary token: {_s212_ps!r}")
+
+# 212c: PowerShell quotes ',' (array operator) and '@' (splatting); CMD unchanged
+_s212_ps = scaffold._format_powershell(["nmap", "-p", "22,80", "host"])
+check(_s212_ps == "nmap -p '22,80' host",
+      f"212c: PS quotes comma list: {_s212_ps!r}")
+_s212_ps = scaffold._format_powershell(["curl", "-d", "@body.json"])
+check(_s212_ps == "curl -d '@body.json'",
+      f"212c: PS quotes leading @: {_s212_ps!r}")
+check(scaffold._format_powershell(["nmap", "-sS", "192.168.1.1"]) == "nmap -sS 192.168.1.1",
+      "212c: PS still leaves plain safe tokens bare")
+_s212_cmdfmt = scaffold._format_cmd(["nmap", "-p", "22,80", "u@h"])
+check(_s212_cmdfmt == "nmap -p 22,80 u@h",
+      f"212c: CMD whitelist unchanged for , and @: {_s212_cmdfmt!r}")
+
+# 212d: group exclusivity re-evaluates the unchecked sibling's dependents
+_s212_grp_tool = scaffold.normalize_tool({
+    "tool": "t", "binary": "t", "description": "x",
+    "arguments": [
+        {"name": "A", "flag": "--a", "type": "boolean", "group": "g"},
+        {"name": "B", "flag": "--b", "type": "boolean", "group": "g"},
+        {"name": "C", "flag": "--c", "type": "string", "depends_on": "--a"},
+    ],
+})
+check(scaffold.validate_tool(_s212_grp_tool) == [],
+      "212d: group + depends_on schema validates")
+_s212_form = scaffold.ToolForm(_s212_grp_tool)
+_s212_G = _s212_form.GLOBAL
+_s212_form.fields[(_s212_G, "--a")]["widget"].setChecked(True)
+_s212_form._set_field_value((_s212_G, "--c"), "val")
+check(_s212_form.fields[(_s212_G, "--c")]["widget"].isEnabled(),
+      "212d: dependent enabled while its parent is checked")
+_s212_form.fields[(_s212_G, "--b")]["widget"].setChecked(True)
+check(not _s212_form.fields[(_s212_G, "--a")]["widget"].isChecked(),
+      "212d: checking --b unchecks group sibling --a")
+check(not _s212_form.fields[(_s212_G, "--c")]["widget"].isEnabled(),
+      "212d: dependent of unchecked sibling is disabled")
+check(not _s212_form.fields[(_s212_G, "--c")]["label"].isEnabled(),
+      "212d: dependent label of unchecked sibling is disabled")
+_s212_cmd = _s212_form.build_command()[0]
+check(_s212_cmd == ["t", "--b"],
+      f"212d: dependent of unchecked sibling not in argv: {_s212_cmd}")
+_s212_form.deleteLater()
+
+# 212e: update_theme keeps decorated labels HTML-escaped; subcommand tooltip escaped
+_s212_lbl_tool = scaffold.normalize_tool({
+    "tool": "t", "binary": "t", "description": "x",
+    "arguments": [
+        {"name": "Size <MB>", "flag": "--s", "type": "string", "required": True},
+        {"name": "Wipe <all>", "flag": "--w", "type": "boolean", "dangerous": True},
+    ],
+    "subcommands": [
+        {"name": "run", "description": "Runs <b>bold</b> & more", "arguments": []},
+    ],
+})
+_s212_form = scaffold.ToolForm(_s212_lbl_tool)
+_s212_G = _s212_form.GLOBAL
+_s212_lbl_s = _s212_form.fields[(_s212_G, "--s")]["label"]
+_s212_lbl_w = _s212_form.fields[(_s212_G, "--w")]["label"]
+_s212_before = (_s212_lbl_s.text(), _s212_lbl_w.text())
+_s212_form.update_theme()
+check("Size &lt;MB&gt;" in _s212_lbl_s.text() and "<MB>" not in _s212_lbl_s.text(),
+      f"212e: required label stays escaped after update_theme: {_s212_lbl_s.text()!r}")
+check("Wipe &lt;all&gt;" in _s212_lbl_w.text() and "<all>" not in _s212_lbl_w.text(),
+      f"212e: dangerous label stays escaped after update_theme: {_s212_lbl_w.text()!r}")
+check((_s212_lbl_s.text(), _s212_lbl_w.text()) == _s212_before,
+      "212e: update_theme in the same theme reproduces the build-time labels")
+_s212_tt = _s212_form.sub_combo.itemData(0, Qt.ItemDataRole.ToolTipRole)
+check(_s212_tt == "<p>Runs &lt;b&gt;bold&lt;/b&gt; &amp; more</p>",
+      f"212e: subcommand tooltip description is escaped: {_s212_tt!r}")
+_s212_form.deleteLater()
+app.processEvents()
+
+# 212f: CMD doubles trailing backslashes so the closing quote is not escaped
+_s212_cmdfmt = scaffold._format_cmd(["robocopy", "C:\\", "D:\\a b\\"])
+check(_s212_cmdfmt == 'robocopy "C:\\\\" "D:\\a b\\\\"',
+      f"212f: CMD doubles trailing backslash before closing quote: {_s212_cmdfmt!r}")
+_s212_cmdfmt = scaffold._format_cmd(["tool", "C:\\Program Files\\x"])
+check(_s212_cmdfmt == 'tool "C:\\Program Files\\x"',
+      f"212f: CMD leaves inner backslashes alone: {_s212_cmdfmt!r}")
+_s212_cmdfmt = scaffold._format_cmd(["tool", "a b\\\\"])
+check(_s212_cmdfmt == 'tool "a b\\\\\\\\"',
+      f"212f: CMD doubles a run of trailing backslashes: {_s212_cmdfmt!r}")
+
+
+# =====================================================================
+# Section 213
+# =====================================================================
+print("\n--- Section 213: Picker filter state, preset robustness, headless CLI fixes ---")
+
+_s213_tmp = Path(tempfile.mkdtemp(prefix="scaffold_s213_"))
+_s213_settings = scaffold._create_settings()
+
+
+def _s213_save_key(key):
+    return (_s213_settings.value(key, None), _s213_settings.contains(key))
+
+
+def _s213_restore_key(key, saved):
+    value, existed = saved
+    if existed:
+        _s213_settings.setValue(key, value)
+    else:
+        _s213_settings.remove(key)
+    _s213_settings.sync()
+
+
+# ---------------------------------------------------------------------
+# 213a: ToolPicker rescan reapplies collapse/filter state to the new rows
+# ---------------------------------------------------------------------
+_s213_tools = _s213_tmp / "tools"
+(_s213_tools / "grp").mkdir(parents=True)
+for _s213_rel, _s213_name in (("grp/a.json", "s213_a"), ("grp/b.json", "s213_b"),
+                              ("root1.json", "s213_root1")):
+    (_s213_tools / _s213_rel).write_text(json.dumps(
+        {"tool": _s213_name, "binary": "echo", "description": "d", "arguments": []}))
+_s213_orig_tools_dir = scaffold._tools_dir
+_s213_orig_bundled_tools_dir = scaffold._bundled_tools_dir
+_s213_saved_recent = _s213_save_key("picker/recent_tools")
+_s213_settings.remove("picker/recent_tools")
+scaffold._tools_dir = lambda: _s213_tools
+scaffold._bundled_tools_dir = lambda: _s213_tools / "_no_bundled_for_test"
+_s213_picker = None
+try:
+    _s213_picker = scaffold.ToolPicker()
+    _s213_hdr = _s213_picker._row_map.index(None)  # the 'grp' header row
+    _s213_picker._on_cell_clicked(_s213_hdr, 1)  # collapse grp
+    app.processEvents()
+    _s213_root1 = next(e[0] for e in _s213_picker._entries if e[0].endswith("root1.json"))
+    _s213_settings.setValue("picker/recent_tools", json.dumps([_s213_root1]))
+    _s213_picker.scan()
+    app.processEvents()
+    _s213_rows = []
+    for _s213_r in range(_s213_picker.table.rowCount()):
+        _s213_it = _s213_picker.table.item(_s213_r, 1)
+        _s213_rows.append((_s213_it.text() if _s213_it else "",
+                           _s213_picker._row_folder[_s213_r],
+                           _s213_picker.table.isRowHidden(_s213_r)))
+    _s213_bad = [
+        r for r in _s213_rows
+        if r[2] != (r[1] == "grp" and not r[0].startswith(("▶", "▼")))
+    ]
+    check(not _s213_bad,
+          f"213a: after rescan only grp's tool rows are hidden (got {_s213_rows!r})")
+    check(any(r[0] == "▶ grp" and not r[2] for r in _s213_rows),
+          f"213a: collapsed grp header stays visible after rescan (got {_s213_rows!r})")
+except Exception as _s213_e:
+    check(False, f"213a: ToolPicker rescan raised {type(_s213_e).__name__}: {_s213_e}")
+finally:
+    if _s213_picker is not None:
+        _s213_picker.deleteLater()
+    scaffold._tools_dir = _s213_orig_tools_dir
+    scaffold._bundled_tools_dir = _s213_orig_bundled_tools_dir
+    _s213_restore_key("picker/recent_tools", _s213_saved_recent)
+    app.processEvents()
+
+# ---------------------------------------------------------------------
+# 213b-d: PresetPicker — star with filter, bad preset files, tooltip edit
+# ---------------------------------------------------------------------
+_s213_pdir = _s213_tmp / "presets"
+_s213_pdir.mkdir()
+for _s213_n in ("alpha", "bravo", "charlie"):
+    (_s213_pdir / f"{_s213_n}.json").write_text(json.dumps({"_description": f"{_s213_n} desc"}))
+_s213_fav_key = "favorites/s213_tool"
+_s213_saved_fav = _s213_save_key(_s213_fav_key)
+_s213_settings.remove(_s213_fav_key)
+_s213_pp = None
+try:
+    _s213_pp = scaffold.PresetPicker("s213_tool", _s213_pdir, "load")
+    _s213_pp.search_bar.setText("bravo")
+    app.processEvents()
+    _s213_brow = next(r for r in range(len(_s213_pp._presets)) if _s213_pp._presets[r].stem == "bravo")
+    _s213_pp._on_cell_clicked(_s213_brow, 0)  # star bravo
+    app.processEvents()
+    _s213_state = [(_s213_pp._presets[r].stem, _s213_pp.table.isRowHidden(r))
+                   for r in range(_s213_pp.table.rowCount())]
+    check(all(hidden == (stem != "bravo") for stem, hidden in _s213_state),
+          f"213b: starring with filter 'bravo' keeps only bravo visible (got {_s213_state!r})")
+    _s213_sel = [i.row() for i in _s213_pp.table.selectionModel().selectedRows()]
+    check(len(_s213_sel) == 1 and _s213_pp._presets[_s213_sel[0]].stem == "bravo"
+          and not _s213_pp.table.isRowHidden(_s213_sel[0]),
+          f"213b: re-selected row is the visible bravo row (got {_s213_sel!r})")
+except Exception as _s213_e:
+    check(False, f"213b: PresetPicker star-with-filter raised {type(_s213_e).__name__}: {_s213_e}")
+finally:
+    if _s213_pp is not None:
+        _s213_pp.deleteLater()
+    _s213_restore_key(_s213_fav_key, _s213_saved_fav)
+    app.processEvents()
+
+# 213c: non-dict preset and non-string _description do not break the picker
+(_s213_pdir / "zlist.json").write_text("[]")
+(_s213_pdir / "zint.json").write_text(json.dumps({"_description": 5}))
+_s213_orig_get_text = scaffold.QInputDialog.getText
+_s213_get_text_calls = []
+_s213_get_text_reply = ["", False]
+
+
+def _s213_fake_get_text(*args, **kwargs):
+    _s213_get_text_calls.append(kwargs.get("text"))
+    return tuple(_s213_get_text_reply)
+
+
+_s213_pp = None
+try:
+    _s213_pp = scaffold.PresetPicker("s213_tool", _s213_pdir, "edit")
+    _s213_descs = {_s213_pp._presets[r].stem: _s213_pp.table.item(r, 2).text()
+                   for r in range(_s213_pp.table.rowCount())}
+    check(_s213_descs.get("zlist") == "" and _s213_descs.get("zint") == ""
+          and _s213_descs.get("alpha") == "alpha desc",
+          f"213c: PresetPicker lists list/int-description presets with empty descriptions "
+          f"(got {_s213_descs!r})")
+except Exception as _s213_e:
+    check(False, f"213c: PresetPicker with bad presets raised {type(_s213_e).__name__}: {_s213_e}")
+finally:
+    if _s213_pp is not None:
+        _s213_pp.deleteLater()
+    app.processEvents()
+
+# Edit Description on files that turn bad after the picker was built (so this
+# exercises _on_edit_description on its own), then 213d's tooltip refresh.
+_s213_pdir2 = _s213_tmp / "presets2"
+_s213_pdir2.mkdir()
+for _s213_n, _s213_d in (("e_list", "x"), ("e_int", "y"), ("old", "old"), ("nodesc", "")):
+    (_s213_pdir2 / f"{_s213_n}.json").write_text(json.dumps({"_description": _s213_d}))
+_s213_pp = None
+try:
+    _s213_pp = scaffold.PresetPicker("s213_tool", _s213_pdir2, "edit")
+    (_s213_pdir2 / "e_list.json").write_text("[]")
+    (_s213_pdir2 / "e_int.json").write_text(json.dumps({"_description": 5}))
+
+    def _s213_row_of(stem):
+        return next(r for r in range(len(_s213_pp._presets)) if _s213_pp._presets[r].stem == stem)
+
+    scaffold.QInputDialog.getText = staticmethod(_s213_fake_get_text)
+    with _patch_qmb("warning") as _s213_warns:
+        _s213_pp.table.selectRow(_s213_row_of("e_list"))
+        try:
+            _s213_pp._on_edit_description()
+            check(len(_s213_warns) == 1 and not _s213_get_text_calls,
+                  f"213c: Edit Description on a list preset warns and does not prompt "
+                  f"(warns={_s213_warns!r}, prompts={_s213_get_text_calls!r})")
+        except Exception as _s213_e:
+            check(False, f"213c: Edit Description on a list preset raised "
+                         f"{type(_s213_e).__name__}: {_s213_e}")
+        _s213_pp.table.selectRow(_s213_row_of("e_int"))
+        try:
+            _s213_pp._on_edit_description()
+            check(_s213_get_text_calls == [""],
+                  f"213c: Edit Description on an int _description prompts with empty text "
+                  f"(got {_s213_get_text_calls!r})")
+        except Exception as _s213_e:
+            check(False, f"213c: Edit Description on an int _description raised "
+                         f"{type(_s213_e).__name__}: {_s213_e}")
+
+        # 213d: editing a description refreshes the cell tooltip
+        _s213_get_text_reply[:] = ["new <b>", True]
+        _s213_r = _s213_row_of("old")
+        _s213_pp.table.selectRow(_s213_r)
+        _s213_pp._on_edit_description()
+        _s213_tip = _s213_pp.table.item(_s213_r, 2).toolTip()
+        check("new &lt;b&gt;" in _s213_tip and "old" not in _s213_tip,
+              f"213d: tooltip shows the edited, escaped description (got {_s213_tip!r})")
+        _s213_get_text_reply[:] = ["fresh", True]
+        _s213_r = _s213_row_of("nodesc")
+        _s213_pp.table.selectRow(_s213_r)
+        _s213_pp._on_edit_description()
+        _s213_tip = _s213_pp.table.item(_s213_r, 2).toolTip()
+        check("fresh" in _s213_tip,
+              f"213d: a description added to an empty one gets a tooltip (got {_s213_tip!r})")
+        _s213_get_text_reply[:] = ["  ", True]
+        _s213_pp.table.selectRow(_s213_r)
+        _s213_pp._on_edit_description()
+        check(_s213_pp.table.item(_s213_r, 2).toolTip() == "",
+              "213d: clearing the description clears the tooltip")
+except Exception as _s213_e:
+    check(False, f"213d: Edit Description checks raised {type(_s213_e).__name__}: {_s213_e}")
+finally:
+    scaffold.QInputDialog.getText = _s213_orig_get_text
+    if _s213_pp is not None:
+        _s213_pp.deleteLater()
+    _s213_restore_key(_s213_fav_key, _s213_saved_fav)
+    app.processEvents()
+
+# ---------------------------------------------------------------------
+# 213e: CascadeHistoryDialog keeps the filter applied after Delete
+# ---------------------------------------------------------------------
+_s213_hist = [
+    {"id": f"s213-{i}", "name": n, "status": "completed", "started_at": time.time(), "steps": []}
+    for i, n in enumerate(("alpha one", "alpha two", "bravo"))
+]
+_s213_hd = None
+_s213_orig_question = QMessageBox.question
+try:
+    _s213_hd = scaffold.CascadeHistoryDialog(_s213_hist)
+    _s213_hd.search_bar.setText("alpha")
+    app.processEvents()
+    _s213_hd.tree.topLevelItem(0).setSelected(True)
+    QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.Yes
+    _s213_hd._on_delete()
+    app.processEvents()
+    _s213_items = [(_s213_hd.tree.topLevelItem(i).text(1), _s213_hd.tree.topLevelItem(i).isHidden())
+                   for i in range(_s213_hd.tree.topLevelItemCount())]
+    check(_s213_items == [("alpha two", False), ("bravo", True)],
+          f"213e: after Delete with filter 'alpha', bravo stays hidden (got {_s213_items!r})")
+except Exception as _s213_e:
+    check(False, f"213e: CascadeHistoryDialog delete raised {type(_s213_e).__name__}: {_s213_e}")
+finally:
+    QMessageBox.question = _s213_orig_question
+    if _s213_hd is not None:
+        _s213_hd.deleteLater()
+    app.processEvents()
+
+# ---------------------------------------------------------------------
+# 213f-h: _parse_run_cascade_args
+# ---------------------------------------------------------------------
+# 213f: variables can be supplied by their (dashed / subcommand) flag
+_s213_p, _s213_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "c.json", "--var", "--input=x", "--var", "clone:--depth=5", "--var", "-o=out"])
+check(_s213_e is None and _s213_p.get("variables") == {"--input": "x", "clone:--depth": "5", "-o": "out"},
+      f"213f: --var accepts cascade variable flags (got {_s213_p!r}, err={_s213_e!r})")
+_s213_vf = _s213_tmp / "flagvars.json"
+_s213_vf.write_text(json.dumps({"--input": "x", "TARGET": "h"}))
+_s213_p, _s213_e = scaffold._parse_run_cascade_args(["--run-cascade", "c.json", "--vars", str(_s213_vf)])
+check(_s213_e is None and _s213_p.get("variables") == {"--input": "x", "TARGET": "h"},
+      f"213f: --vars accepts cascade variable flags as keys (got {_s213_p!r}, err={_s213_e!r})")
+for _s213_bad in ("1bad=v", "--=v", "a b=v", "-1=v"):
+    _s213_p, _s213_e = scaffold._parse_run_cascade_args(["--run-cascade", "c.json", "--var", _s213_bad])
+    check(_s213_e is not None and "invalid" in _s213_e,
+          f"213f: --var {_s213_bad!r} still rejected (got {_s213_e!r})")
+
+# 213g: flags before --run-cascade are parsed, not dropped
+_s213_p, _s213_e = scaffold._parse_run_cascade_args(
+    ["--loop", "5", "--summary", "x.json", "--var", "a=1", "--run-cascade", "c.json"])
+check(_s213_e is None and _s213_p.get("loop_count") == 5 and _s213_p.get("summary_path") == "x.json"
+      and _s213_p.get("variables") == {"a": "1"},
+      f"213g: flags before --run-cascade are honored (got {_s213_p!r}, err={_s213_e!r})")
+_s213_p, _s213_e = scaffold._parse_run_cascade_args(["--bogus", "--run-cascade", "c.json"])
+check(_s213_e is not None and "unknown flag" in _s213_e,
+      f"213g: unknown flag before --run-cascade is an error (got {_s213_e!r})")
+
+# 213h: a UTF-16 --vars file is a usage error, not a traceback
+_s213_u16 = _s213_tmp / "vars_u16.json"
+_s213_u16.write_bytes(json.dumps({"a": "1"}).encode("utf-16"))
+try:
+    _s213_p, _s213_e = scaffold._parse_run_cascade_args(["--run-cascade", "c.json", "--vars", str(_s213_u16)])
+    check(_s213_e is not None and "failed to read" in _s213_e,
+          f"213h: UTF-16 --vars file reports 'failed to read' (got {_s213_e!r})")
+except Exception as _s213_ex:
+    check(False, f"213h: UTF-16 --vars file raised {type(_s213_ex).__name__}: {_s213_ex}")
+
+# ---------------------------------------------------------------------
+# 213i-j: CascadeHeadlessRunner end-to-end
+# ---------------------------------------------------------------------
+from PySide6.QtCore import QByteArray as _s213_QByteArray
+
+scaffold.MainWindow._suppress_welcome_dialog = True
+
+
+def _s213_make_tool(name, code):
+    p = _s213_tmp / f"{name}.json"
+    p.write_text(json.dumps({
+        "_format": "scaffold_schema", "tool": name, "binary": "python",
+        "description": "s213 tool",
+        "arguments": [
+            {"name": "Code", "flag": "-c", "type": "string", "required": False, "default": code},
+            {"name": "In", "flag": "--input", "type": "string", "required": False},
+        ],
+    }))
+    return p
+
+
+def _s213_make_cascade(name, tools, variables):
+    p = _s213_tmp / f"{name}.json"
+    p.write_text(json.dumps({
+        "_format": "scaffold_cascade", "name": name, "description": "t",
+        "loop_mode": False, "stop_on_error": False,
+        "steps": [{"tool": str(t), "preset": None, "delay": 0, "captures": []} for t in tools],
+        "variables": variables,
+    }))
+    return p
+
+
+def _s213_run(cascade, variables):
+    runner = scaffold.CascadeHeadlessRunner(cascade_path=str(cascade), variables=variables)
+    out_buf, err_buf = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+        rc = runner.run()
+    app.processEvents()
+    return rc, out_buf.getvalue(), err_buf.getvalue()
+
+
+_s213_var_in = [{"name": "In", "flag": "--input", "type_hint": "string", "apply_to": "all"}]
+
+# 213i: a --input variable supplied on the command line reaches the step
+_s213_t_echo = _s213_make_tool("s213_echo", "import sys; print('ARGS', sys.argv[1:])")
+_s213_c_echo = _s213_make_cascade("s213_c_echo", [_s213_t_echo], _s213_var_in)
+_s213_p, _s213_e = scaffold._parse_run_cascade_args(
+    ["--run-cascade", str(_s213_c_echo), "--var", "--input=s213val"])
+if _s213_e is not None:
+    check(False, f"213i: --var --input=... parses (got {_s213_e!r})")
+else:
+    _s213_rc, _s213_out, _s213_err = _s213_run(_s213_c_echo, _s213_p["variables"])
+    check(_s213_rc == 0 and "s213val" in _s213_out,
+          f"213i: --input variable injected into the step (rc={_s213_rc}, "
+          f"out={_s213_out[-300:]!r}, err={_s213_err[-300:]!r})")
+
+# 213j: the run leaves the GUI's crash-recovery files and window geometry alone
+_s213_t_x = _s213_make_tool("s213_rx", "import sys; sys.exit(0)")
+_s213_t_y = _s213_make_tool("s213_ry", "import time; time.sleep(0.6)")
+_s213_c_rec = _s213_make_cascade("s213_c_rec", [_s213_t_y, _s213_t_x], _s213_var_in)
+
+
+def _s213_rec_path(tool):
+    return (Path(tempfile.gettempdir())
+            / f"scaffold_recovery_{scaffold._user_id()}_{scaffold._sanitize_filename_component(tool)}.json")
+
+
+_s213_rec = {}
+for _s213_tool, _s213_tp in (("s213_rx", _s213_t_x), ("s213_ry", _s213_t_y)):
+    _s213_body = json.dumps({"--input": f"unsaved-{_s213_tool}",
+                             "_recovery_tool_path": str(_s213_tp),
+                             "_recovery_timestamp": time.time()})
+    _s213_rec_path(_s213_tool).write_text(_s213_body)
+    _s213_rec[_s213_tool] = _s213_body
+_s213_saved_last = _s213_save_key("session/last_tool")
+_s213_saved_geo = _s213_save_key("window/geometry")
+_s213_settings.setValue("session/last_tool", str(_s213_t_x))  # GUI had X open when it crashed
+_s213_settings.setValue("window/geometry", _s213_QByteArray(b"s213-geometry"))
+_s213_settings.sync()
+_s213_orig_debounce = scaffold.AUTOSAVE_DEBOUNCE_MS
+scaffold.AUTOSAVE_DEBOUNCE_MS = 20  # let autosave fire during step 1's sleep
+try:
+    _s213_rc, _s213_out, _s213_err = _s213_run(_s213_c_rec, {"--input": "headless"})
+    check(_s213_rc == 0, f"213j: recovery cascade ran (rc={_s213_rc}, err={_s213_err[-300:]!r})")
+    for _s213_tool, _s213_body in _s213_rec.items():
+        _s213_rp = _s213_rec_path(_s213_tool)
+        _s213_now = _s213_rp.read_text() if _s213_rp.exists() else None
+        check(_s213_now == _s213_body,
+              f"213j: recovery file for {_s213_tool} untouched by headless run "
+              f"(exists={_s213_now is not None}, "
+              f"changed={_s213_now is not None and _s213_now != _s213_body})")
+    check(_s213_settings.value("session/last_tool") == str(_s213_t_x),
+          "213j: session/last_tool restored after run")
+    _s213_geo = _s213_settings.value("window/geometry")
+    check(_s213_geo is not None and bytes(_s213_geo) == b"s213-geometry",
+          f"213j: window/geometry restored after run (got {_s213_geo!r})")
+except Exception as _s213_e:
+    check(False, f"213j: recovery cascade raised {type(_s213_e).__name__}: {_s213_e}")
+finally:
+    scaffold.AUTOSAVE_DEBOUNCE_MS = _s213_orig_debounce
+    _s213_restore_key("session/last_tool", _s213_saved_last)
+    _s213_restore_key("window/geometry", _s213_saved_geo)
+    for _s213_tool in _s213_rec:
+        try:
+            _s213_rec_path(_s213_tool).unlink()
+        except OSError:
+            pass
+    app.processEvents()
+
+shutil.rmtree(_s213_tmp, ignore_errors=True)
+app.processEvents()
+
+
+# =====================================================================
+# Section 214
+# =====================================================================
+print("\n--- Section 214: Cascade sidebar chain timers, failed-start, import/export, captures ---")
+
+import subprocess as _s214_subprocess
+
+_s214_tmpdir = Path(tempfile.mkdtemp(prefix="scaffold_s214_"))
+_s214_saved_dark = scaffold._dark_mode
+_s214_saved_suppress = scaffold.MainWindow._suppress_welcome_dialog
+scaffold.MainWindow._suppress_welcome_dialog = True
+
+
+def _s214_make_tool(name, binary, code=None):
+    args = [{"name": "Msg", "flag": "--msg", "type": "string"}]
+    if code is not None:
+        args = [{"name": "Code", "flag": "-c", "type": "string",
+                 "required": False, "default": code}]
+    data = {"_format": "scaffold_schema", "tool": name, "binary": binary,
+            "description": f"Test tool {name}", "arguments": args}
+    p = _s214_tmpdir / f"{name}.json"
+    p.write_text(json.dumps(data))
+    return str(p)
+
+
+def _s214_pump_until(cond, timeout):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        app.processEvents()
+        if cond():
+            return True
+        time.sleep(0.02)
+    app.processEvents()
+    return cond()
+
+
+def _s214_set_slots(dock, paths):
+    for i in range(len(dock._slots)):
+        dock._slots[i]["tool_path"] = paths[i] if i < len(paths) else None
+        dock._slots[i]["preset_path"] = None
+        dock._slots[i]["delay"] = 0
+        dock._slots[i]["captures"] = []
+    dock._cascade_variables = []
+
+
+def _s214_force_idle(dock):
+    # Baseline builds can strand the chain; reset so teardown is clean.
+    if dock._chain_state != scaffold.CHAIN_IDLE:
+        try:
+            dock._on_stop_chain()
+        except Exception:
+            dock._chain_cleanup("s214 cleanup", silent=True)
+    _s214_pump_until(lambda: dock._main_window.process is None
+                     or dock._main_window.process.state()
+                     == QProcess.ProcessState.NotRunning, 3.0)
+
+
+_s214_bad = _s214_make_tool("tool_s214_bad", "___nonexistent_binary_214___")
+_s214_ok_a = _s214_make_tool("tool_s214_ok_a", "python", "pass")
+_s214_ok_b = _s214_make_tool("tool_s214_ok_b", "python", "pass")
+_s214_ok_c = _s214_make_tool("tool_s214_ok_c", "python", "pass")
+
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s214_win = scaffold.MainWindow()
+_s214_win.show()
+app.processEvents()
+_s214_dock = _s214_win.cascade_dock
+_s214_dock.show()
+app.processEvents()
+
+# --- X107: failed-to-start on step 1 (async errorOccurred on POSIX) ---
+_s214_set_slots(_s214_dock, [_s214_bad])
+_s214_dock._on_run_chain()
+_s214_pump_until(lambda: _s214_dock._chain_state == scaffold.CHAIN_IDLE, 3.0)
+check(_s214_dock._chain_state == scaffold.CHAIN_IDLE,
+      f"214a: chain IDLE after step-1 failed-to-start "
+      f"(got {_s214_dock._chain_state!r})")
+_s214_msg = _s214_win.statusBar().currentMessage()
+check("process failed to start" in _s214_msg,
+      f"214a: status bar shows cascade failed-to-start cleanup ({_s214_msg!r})")
+check(_s214_dock._stored_original_on_finished is None,
+      "214a: _on_finished monkey-patch removed after failed-to-start")
+check(_s214_dock._cascade_finish_status == "error_halted",
+      f"214a: finish status error_halted "
+      f"(got {_s214_dock._cascade_finish_status!r})")
+check(_s214_dock.run_chain_btn.isEnabled(),
+      "214a: Run button re-enabled after failed-to-start")
+_s214_force_idle(_s214_dock)
+
+# --- X107: failed-to-start on a later step ---
+_s214_set_slots(_s214_dock, [_s214_ok_a, _s214_bad])
+_s214_dock._on_run_chain()
+_s214_pump_until(lambda: _s214_dock._chain_state == scaffold.CHAIN_IDLE, 8.0)
+check(_s214_dock._chain_state == scaffold.CHAIN_IDLE,
+      f"214b: chain IDLE after step-2 failed-to-start "
+      f"(got {_s214_dock._chain_state!r})")
+_s214_msg = _s214_win.statusBar().currentMessage()
+check("process failed to start" in _s214_msg,
+      f"214b: status shows failed-to-start for step 2 ({_s214_msg!r})")
+check(_s214_dock._stored_original_on_finished is None,
+      "214b: _on_finished monkey-patch removed after step-2 failure")
+_s214_force_idle(_s214_dock)
+
+# --- X107: headless --run-cascade must not hang on failed-to-start ---
+_s214_cascade = _s214_tmpdir / "c_s214_bad.json"
+_s214_cascade.write_text(json.dumps({
+    "_format": "scaffold_cascade", "name": "c_s214_bad", "description": "",
+    "loop_mode": False, "stop_on_error": False, "variables": [],
+    "steps": [{"tool": _s214_bad, "preset": None, "delay": 0, "captures": []}],
+}))
+_s214_runner = scaffold.CascadeHeadlessRunner(str(_s214_cascade), {}, 1, None)
+_s214_guard = QTimer()
+_s214_guard.setSingleShot(True)
+_s214_guard.timeout.connect(lambda: setattr(_s214_runner, "_sigint", True))
+_s214_guard.start(8000)
+_s214_t0 = time.monotonic()
+try:
+    with contextlib.redirect_stdout(io.StringIO()), \
+            contextlib.redirect_stderr(io.StringIO()):
+        _s214_rc = _s214_runner.run()
+except Exception as _s214_exc:
+    _s214_rc = f"raised {_s214_exc!r}"
+_s214_guard.stop()
+_s214_elapsed = time.monotonic() - _s214_t0
+# Exit 3: the step is recorded as failed and the run completes (130 would
+# mean the 8s guard had to interrupt a hung run).
+check(_s214_rc == 3 and _s214_elapsed < 7.5,
+      f"214c: headless run of failed-to-start cascade finishes without hanging "
+      f"(rc={_s214_rc!r}, {_s214_elapsed:.1f}s)")
+app.processEvents()
+
+# --- 28: a stopped run's pending step timer must not advance the next run ---
+_s214_set_slots(_s214_dock, [_s214_ok_a, _s214_ok_b, _s214_ok_c])
+_s214_dock._slots[0]["delay"] = 1
+_s214_dock._on_run_chain()
+_s214_ok = _s214_pump_until(
+    lambda: _s214_win.statusBar().currentMessage().startswith("Cascade: waiting"),
+    5.0)
+check(_s214_ok, "214d: first run reaches the inter-step wait after step 1")
+# Stop during the 1s wait, then start again with a longer wait.
+_s214_dock._on_stop_chain()
+_s214_dock._slots[0]["delay"] = 4
+_s214_dock._on_run_chain()
+_s214_ok = _s214_pump_until(
+    lambda: _s214_win.statusBar().currentMessage().startswith("Cascade: waiting 4s"),
+    5.0)
+check(_s214_ok, "214d: second run reaches its own 4s wait after step 1")
+# The stale 1s timer from the stopped run fires within this window.
+_s214_pump_until(lambda: False, 1.5)
+check(_s214_dock._chain_current == 0
+      and _s214_dock._chain_state == scaffold.CHAIN_LOADING,
+      f"214d: stale timer did not advance the restarted run "
+      f"(current={_s214_dock._chain_current}, state={_s214_dock._chain_state!r})")
+_s214_force_idle(_s214_dock)
+check(_s214_dock._chain_state == scaffold.CHAIN_IDLE,
+      "214d: chain IDLE after stop")
+_s214_pump_until(lambda: False, 0.3)
+
+# --- 29: imported delay is coerced / clamped; bad steps rejected up front ---
+_s214_rel = ["tools/s214_a.json", "tools/s214_b.json", "tools/s214_c.json",
+             "tools/s214_d.json", "tools/s214_e.json"]
+_s214_raw_delays = [None, "5", 99999, -3, True]
+try:
+    _s214_dock._import_cascade_data({
+        "_format": "scaffold_cascade",
+        "steps": [{"tool": t, "delay": d}
+                  for t, d in zip(_s214_rel, _s214_raw_delays)],
+    })
+    _s214_exc = None
+except Exception as _s214_e:
+    _s214_exc = _s214_e
+check(_s214_exc is None,
+      f"214e: import with null/str/out-of-range delays does not raise "
+      f"(got {_s214_exc!r})")
+check(len(_s214_dock._slots) == len(_s214_dock._slot_widgets),
+      f"214e: slots and slot widgets stay in sync "
+      f"({len(_s214_dock._slots)} vs {len(_s214_dock._slot_widgets)})")
+_s214_delays = [s.get("delay") for s in _s214_dock._slots[:5]]
+check(_s214_delays == [0, 0, 3600, 0, 0],
+      f"214e: delays coerced to ints in 0..3600 (got {_s214_delays!r})")
+_s214_spins = [w["delay_spin"].value() for w in _s214_dock._slot_widgets[:5]]
+check(_s214_spins == _s214_delays,
+      f"214e: spinbox shows the same delay as is used at run time "
+      f"(spins {_s214_spins!r})")
+_s214_nslots = len(_s214_dock._slots)
+try:
+    _s214_dock._import_cascade_data({
+        "_format": "scaffold_cascade",
+        "steps": [{"tool": "tools/s214_a.json"}, "not-a-step"],
+    })
+    _s214_exc = None
+except Exception as _s214_e:
+    _s214_exc = _s214_e
+check(isinstance(_s214_exc, ValueError),
+      f"214f: non-object step rejected with ValueError (got {_s214_exc!r})")
+check(len(_s214_dock._slots) == _s214_nslots
+      and len(_s214_dock._slot_widgets) == _s214_nslots,
+      "214f: rejected import leaves the sidebar untouched")
+# Rebuild from a valid cascade so later checks run even if 214e/f broke it.
+_s214_dock._import_cascade_data({"_format": "scaffold_cascade",
+                                 "steps": [{"tool": "tools/s214_a.json"}]})
+
+# --- 30: exported cascade paths use forward slashes (Windows -> POSIX) ---
+from pathlib import PureWindowsPath as _s214_PWP
+_s214_saved = (scaffold.Path, scaffold._user_data_root, scaffold._bundled_root,
+               _s214_dock._slots)
+try:
+    scaffold.Path = _s214_PWP
+    scaffold._user_data_root = lambda: _s214_PWP(r"C:\Users\u\scaffold")
+    scaffold._bundled_root = lambda: _s214_PWP(r"C:\Program Files\scaffold")
+    _s214_dock._slots = [{
+        "tool_path": r"C:\Users\u\scaffold\tools\nmap.json",
+        "preset_path": r"C:\Program Files\scaffold\presets\nmap\fast.json",
+        "delay": 0, "captures": [],
+    }]
+    _s214_exp = _s214_dock._export_cascade_data("s214")
+finally:
+    (scaffold.Path, scaffold._user_data_root, scaffold._bundled_root,
+     _s214_dock._slots) = _s214_saved
+_s214_step = _s214_exp["steps"][0]
+check(_s214_step["tool"] == "tools/nmap.json"
+      and _s214_step["preset"] == "presets/nmap/fast.json",
+      f"214g: exported paths are POSIX-style (got {_s214_step['tool']!r}, "
+      f"{_s214_step['preset']!r})")
+
+# --- 31: update_theme restyles the Err (stop-on-error) button ---
+try:
+    _s214_dock._stop_on_error = False
+    scaffold._dark_mode = False
+    _s214_dock.update_theme()
+    scaffold._dark_mode = True
+    _s214_dock.update_theme()
+    _s214_qss = _s214_dock.stop_on_error_btn.styleSheet()
+    check(scaffold.DARK_COLORS["border"] in _s214_qss and "#c0c0c0" not in _s214_qss,
+          f"214h: Err button (off) gets dark border after flip ({_s214_qss!r})")
+    _s214_dock._stop_on_error = True
+    scaffold._dark_mode = False
+    _s214_dock.update_theme()
+    scaffold._dark_mode = True
+    _s214_dock.update_theme()
+    _s214_qss = _s214_dock.stop_on_error_btn.styleSheet()
+    check(scaffold.DARK_COLORS["success"] in _s214_qss and "#4CAF50" not in _s214_qss,
+          f"214h: Err button (on) gets dark accent after flip ({_s214_qss!r})")
+finally:
+    _s214_dock._stop_on_error = False
+    scaffold._dark_mode = _s214_saved_dark
+    _s214_dock.update_theme()
+
+# --- 33: "group": null means the default group 1 ---
+_s214_cap = {"name": "num", "source": "stdout", "pattern": r"(\d+)", "group": None}
+scaffold._validate_capture_entry(dict(_s214_cap), [])
+_s214_vals, _s214_errs = scaffold.extract_captures([_s214_cap], "abc 123", "", 0)
+check(_s214_vals == {"num": "123"} and _s214_errs == [],
+      f"214i: group null extracts group 1 (got {_s214_vals!r}, {_s214_errs!r})")
+
+# --- 27: regex pool works under spawn when scaffold.py itself is __main__ ---
+_s214_src = Path(scaffold.__file__).read_text(encoding="utf-8")
+_s214_guard_src = 'if __name__ == "__main__":\n    main()'
+check(_s214_guard_src in _s214_src, "214j: scaffold.py ends with a __main__ guard")
+_s214_script = _s214_tmpdir / "scaffold_s214_main.py"
+_s214_script.write_text(_s214_src.replace(_s214_guard_src, (
+    'if __name__ == "__main__":\n'
+    '    multiprocessing.set_start_method("spawn", force=True)\n'
+    '    print("S214RESULT", repr(_bounded_regex_search(r"(\\d+)", "abc 123", 1)), flush=True)\n'
+    '    _reset_regex_pool()\n')), encoding="utf-8")
+_s214_env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+try:
+    _s214_proc = _s214_subprocess.run(
+        [sys.executable, str(_s214_script)], capture_output=True, text=True,
+        timeout=60, env=_s214_env, cwd=str(_s214_tmpdir))
+    _s214_out = _s214_proc.stdout
+except _s214_subprocess.TimeoutExpired as _s214_e:
+    _s214_out = f"timeout {_s214_e!r}"
+check("S214RESULT (True, '123', '')" in _s214_out,
+      f"214j: spawn worker resolves __main__._regex_worker_entry "
+      f"(got {_s214_out.strip()[-200:]!r})")
+
+# Cleanup section 214
+_s214_force_idle(_s214_dock)
+_s214_win.close()
+_s214_win.deleteLater()
+app.processEvents()
+scaffold.MainWindow._suppress_welcome_dialog = _s214_saved_suppress
+shutil.rmtree(_s214_tmpdir, ignore_errors=True)
+_s214_qs = QSettings("Scaffold", "Scaffold")
+_s214_qs.remove("cascade")
+_s214_qs.remove("cascade_history")
+for _s214_name in ("tool_s214_bad", "tool_s214_ok_a", "tool_s214_ok_b", "tool_s214_ok_c"):
+    _s214_qs.remove(f"history/{_s214_name}")
+scaffold._reset_regex_pool()  # 214i started the in-process pool
+
+
+# =====================================================================
+# Section 215
+# =====================================================================
+print("\n--- Section 215: MainWindow run lifecycle fixes ---")
+
+from PySide6.QtCore import QEvent as _s215_QEvent
+
+_s215_tmpdir = Path(tempfile.mkdtemp(prefix="scaffold_s215_"))
+_s215_py_tool = {
+    "_format": "scaffold_schema",
+    "tool": "s215_py",
+    "binary": sys.executable,
+    "description": "section 215 python runner",
+    "arguments": [{"name": "Code", "flag": "-c", "type": "string"}],
+}
+_s215_py_path = _s215_tmpdir / "s215_py.json"
+_s215_py_path.write_text(json.dumps(_s215_py_tool), encoding="utf-8")
+
+
+def _s215_wait_idle(w, timeout=10.0):
+    """Pump events until the window's process has finished (process is None)."""
+    end = time.monotonic() + timeout
+    while w.process is not None and time.monotonic() < end:
+        app.processEvents()
+        time.sleep(0.01)
+    app.processEvents()
+    return w.process is None
+
+
+def _s215_set_code(w, code):
+    w.form._set_field_value((w.form.GLOBAL, "-c"), code)
+    app.processEvents()
+
+
+def _s215_close(w):
+    try:
+        if w.process is not None:
+            w._teardown_process()
+    except Exception:
+        pass
+    w.close()
+    w.deleteLater()
+    app.processEvents()
+
+
+_s215_win = scaffold.MainWindow()
+_s215_win.show()
+app.processEvents()
+_s215_win._load_tool_path(str(_s215_py_path))
+app.processEvents()
+try:
+    # -----------------------------------------------------------------
+    # 215a-b [35]: a binary found only in a Custom PATH dir actually starts
+    # -----------------------------------------------------------------
+    if sys.platform != "win32":
+        _s215_cdir = _s215_tmpdir / "custom_bin"
+        _s215_cdir.mkdir()
+        _s215_cbin = _s215_cdir / "zzs215customtool"
+        _s215_cbin.write_text("#!/bin/sh\necho s215-custom-path-ok\n", encoding="utf-8")
+        os.chmod(_s215_cbin, 0o755)
+        _s215_ctool = {
+            "_format": "scaffold_schema",
+            "tool": "s215_custom",
+            "binary": "zzs215customtool",
+            "description": "section 215 custom PATH tool",
+            "arguments": [{"name": "Msg", "flag": "--msg", "type": "string"}],
+        }
+        _s215_ctool_path = _s215_tmpdir / "s215_custom.json"
+        _s215_ctool_path.write_text(json.dumps(_s215_ctool), encoding="utf-8")
+        _s215_cwin = scaffold.MainWindow()
+        _s215_cwin.show()
+        app.processEvents()
+        try:
+            scaffold._set_custom_paths([str(_s215_cdir)])
+            _s215_cwin._load_tool_path(str(_s215_ctool_path))
+            app.processEvents()
+            check(not _s215_cwin.warning_bar.isVisible(),
+                  "215a: custom-PATH binary passes the load-time PATH check")
+            _s215_cwin._on_run_stop()
+            _s215_wait_idle(_s215_cwin)
+            _s215_out = _s215_cwin.output.toPlainText()
+            check("s215-custom-path-ok" in _s215_out and "not found" not in _s215_out,
+                  f"215b: binary only in a Custom PATH dir runs (output={_s215_out[-200:]!r})")
+        finally:
+            scaffold._create_settings().remove("custom_paths")
+            _s215_close(_s215_cwin)
+    else:
+        check(True, "215a: skipped on Windows")
+        check(True, "215b: skipped on Windows")
+
+    # -----------------------------------------------------------------
+    # 215c-h [36]: Back / Reload mid-run reset run button, progress, timers
+    # -----------------------------------------------------------------
+    _s215_win.timeout_spin.setValue(60)
+    _s215_set_code(_s215_win, "import time; time.sleep(30)")
+    _s215_win._on_run_stop()
+    _s215_started = _s215_win.process is not None and _s215_win.process.waitForStarted(5000)
+    app.processEvents()
+    check(_s215_started and _s215_win.run_btn.text() == "Stop",
+          "215c: setup - long run started (button reads Stop)")
+    _s215_win._on_back()
+    app.processEvents()
+    _s215_win._on_picker_back()
+    app.processEvents()
+    check(_s215_win.process is None and _s215_win.run_btn.text() == "Run",
+          f"215d: after Back mid-run, run button reads Run (got {_s215_win.run_btn.text()!r})")
+    check(_s215_win._progress_label.text() == "",
+          f"215e: after Back mid-run, progress label cleared "
+          f"(got {_s215_win._progress_label.text()!r})")
+    check(not _s215_win._elapsed_timer.isActive() and not _s215_win._timeout_timer.isActive(),
+          "215f: after Back mid-run, elapsed and timeout timers stopped")
+
+    _s215_set_code(_s215_win, "import time; time.sleep(30)")
+    _s215_win._on_run_stop()
+    if _s215_win.process is not None:
+        _s215_win.process.waitForStarted(5000)
+    app.processEvents()
+    _s215_win._on_reload()
+    app.processEvents()
+    check(_s215_win._progress_label.text() == "",
+          f"215g: after Reload mid-run, progress label cleared "
+          f"(got {_s215_win._progress_label.text()!r})")
+    check(not _s215_win._timeout_timer.isActive() and not _s215_win._elapsed_timer.isActive(),
+          "215h: after Reload mid-run, timeout and elapsed timers stopped")
+    _s215_win.timeout_spin.setValue(0)
+    _s215_win.settings.remove("timeout/s215_py")
+
+    # -----------------------------------------------------------------
+    # 215i [37]: crash banner comes after the process's last output
+    # -----------------------------------------------------------------
+    if sys.platform != "win32":
+        _s215_win._clear_output()
+        _s215_set_code(
+            _s215_win,
+            "import os, signal; print('s215-line-before-crash', flush=True); "
+            "os.kill(os.getpid(), signal.SIGKILL)",
+        )
+        # Long flush interval keeps the last output in the buffer until the
+        # error/finished handlers flush it, so the ordering is deterministic.
+        _s215_win._flush_timer.setInterval(5000)
+        try:
+            _s215_win._on_run_stop()
+            _s215_wait_idle(_s215_win)
+        finally:
+            _s215_win._flush_timer.setInterval(scaffold.OUTPUT_FLUSH_MS)
+        _s215_out = _s215_win.output.toPlainText()
+        # Match the output line itself, not the echoed "$ ..." command line.
+        _s215_line_i = _s215_out.find("\ns215-line-before-crash\n")
+        _s215_banner_i = _s215_out.find("Process crashed unexpectedly")
+        check(0 <= _s215_line_i < _s215_banner_i,
+              f"215i: crash banner printed after last output (output={_s215_out!r})")
+    else:
+        check(True, "215i: skipped on Windows")
+
+    # -----------------------------------------------------------------
+    # 215j [38]: finished runs do not leave QProcess children behind
+    # -----------------------------------------------------------------
+    _s215_set_code(_s215_win, "pass")
+    QApplication.sendPostedEvents(None, _s215_QEvent.Type.DeferredDelete)
+    _s215_before = len(_s215_win.findChildren(QProcess))
+    _s215_runs_ok = True
+    for _s215_i in range(3):
+        _s215_win._on_run_stop()
+        _s215_runs_ok = _s215_wait_idle(_s215_win) and _s215_runs_ok
+    QApplication.sendPostedEvents(None, _s215_QEvent.Type.DeferredDelete)
+    app.processEvents()
+    _s215_after = len(_s215_win.findChildren(QProcess))
+    check(_s215_runs_ok and _s215_after <= _s215_before,
+          f"215j: 3 finished runs leave no QProcess children "
+          f"(before={_s215_before}, after={_s215_after})")
+
+    # -----------------------------------------------------------------
+    # 215k [39]: recovery temp file is owner-only before the rename
+    # -----------------------------------------------------------------
+    if sys.platform != "win32":
+        _s215_set_code(_s215_win, "print('s215 dirty form')")
+        _s215_win._autosave_timer.stop()
+        _s215_tmp_modes = []
+        _s215_real_replace = os.replace
+
+        def _s215_spy_replace(src, dst, *a, **kw):
+            if "scaffold_recovery_" in str(src) and str(src).endswith(".tmp"):
+                _s215_tmp_modes.append(os.stat(src).st_mode & 0o777)
+            return _s215_real_replace(src, dst, *a, **kw)
+
+        _s215_old_umask = os.umask(0o022)
+        os.replace = _s215_spy_replace
+        try:
+            _s215_win._autosave_form()
+        finally:
+            os.replace = _s215_real_replace
+            os.umask(_s215_old_umask)
+        check(_s215_tmp_modes == [0o600],
+              f"215k: recovery temp file created 0600 under umask 022 "
+              f"(modes={[oct(m) for m in _s215_tmp_modes]})")
+        _s215_win._clear_recovery_file()
+    else:
+        check(True, "215k: skipped on Windows")
+
+    # -----------------------------------------------------------------
+    # 215l-n [40]: cascade-history step restore skips a tool that fails to load
+    # -----------------------------------------------------------------
+    _s215_set_code(_s215_win, "S215_SENTINEL")
+    _s215_preset_path = _s215_tmpdir / "s215_preset.json"
+    _s215_preset_path.write_text(json.dumps(_s215_win.form.serialize_values()), encoding="utf-8")
+    _s215_set_code(_s215_win, "")
+    _s215_bad_path = _s215_tmpdir / "s215_bad.json"
+    _s215_bad_path.write_text(json.dumps({
+        "_format": "scaffold_schema", "tool": "s215_bad", "binary": "",
+        "description": "invalid: empty binary", "arguments": [],
+    }), encoding="utf-8")
+
+    class _S215FakeCascadeHistoryDialog:
+        def __init__(self, history, parent=None):
+            self.history = history
+            self.restore_result = {
+                "action": "step",
+                "step": {"tool_path": str(_s215_bad_path),
+                         "preset_path": str(_s215_preset_path)},
+            }
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+    _s215_orig_chd = scaffold.CascadeHistoryDialog
+    scaffold.CascadeHistoryDialog = _S215FakeCascadeHistoryDialog
+    # No session restore, so the second window starts with no form at all.
+    _s215_win.settings.remove("session/last_tool")
+    _s215_win2 = scaffold.MainWindow()
+    try:
+        for _s215_w in (_s215_win, _s215_win2):
+            _s215_w._load_cascade_history = lambda: [{"s215": True}]
+            _s215_w._save_cascade_history = lambda h: None
+        _s215_win.statusBar().clearMessage()
+        with _patch_qmb("warning") as _s215_msgs:
+            _s215_win._on_show_cascade_history()
+            app.processEvents()
+        _s215_val = _s215_win.form.get_field_value((_s215_win.form.GLOBAL, "-c"))
+        check(_s215_win.data["tool"] == "s215_py" and _s215_val != "S215_SENTINEL",
+              f"215l: failed step load does not apply preset to the old form (value={_s215_val!r})")
+        check(any(t == "Load Error" for t, _ in _s215_msgs),
+              f"215m: setup - Load Error shown for the invalid step tool (msgs={_s215_msgs!r})")
+        check(not hasattr(_s215_win2, "form"),
+              "215n: setup - second window has no form loaded")
+        _s215_exc = None
+        with _patch_qmb("warning"):
+            try:
+                _s215_win2._on_show_cascade_history()
+                app.processEvents()
+            except Exception as e:
+                _s215_exc = e
+        check(_s215_exc is None,
+              f"215o: failed step load with no form loaded does not raise (got {_s215_exc!r})")
+    finally:
+        scaffold.CascadeHistoryDialog = _s215_orig_chd
+        _s215_close(_s215_win2)
+finally:
+    _s215_close(_s215_win)
+    QSettings("Scaffold", "Scaffold").remove("timeout/s215_py")
+    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+    shutil.rmtree(_s215_tmpdir, ignore_errors=True)
+    _cleanup_recovery_files()
+
+
+# =====================================================================
+# Section 216
+# =====================================================================
+print("\n--- Section 216: Import atomicity, recovery/geometry/vars input hardening ---")
+
+import subprocess as _s216_subprocess
+
+_s216_tmpdir = tempfile.mkdtemp(prefix="scaffold_test216_")
+QSettings("Scaffold", "Scaffold").remove("cascade")
+_s216_win = scaffold.MainWindow()
+_s216_dock = _s216_win.cascade_dock
+app.processEvents()
+
+# --- 216a: a rejected unsafe path leaves the sidebar intact ---------------
+_s216_good = {
+    "_format": "scaffold_cascade",
+    "steps": [{"tool": "tools/a.json"}, {"tool": "tools/b.json"}, {"tool": "tools/c.json"}],
+}
+_s216_dock._import_cascade_data(_s216_good)
+_s216_before = len(_s216_dock._slots)
+_s216_bad_path = {
+    "_format": "scaffold_cascade",
+    "steps": [{"tool": "tools/a.json"}, {"tool": "../../etc/passwd"}],
+}
+_s216_raised = False
+try:
+    _s216_dock._import_cascade_data(_s216_bad_path)
+except ValueError:
+    _s216_raised = True
+check(_s216_raised, "216a: unsafe step path still raises ValueError")
+check(len(_s216_dock._slots) == _s216_before == len(_s216_dock._slot_widgets),
+      f"216a: slots/widgets unchanged after rejected import "
+      f"({len(_s216_dock._slots)} slots, {len(_s216_dock._slot_widgets)} widgets, "
+      f"expected {_s216_before})")
+_s216_refresh_ok = True
+try:
+    _s216_dock._refresh_button_labels()
+except Exception:
+    _s216_refresh_ok = False
+check(_s216_refresh_ok, "216a: sidebar still usable (_refresh_button_labels) after rejected import")
+
+# --- 216b: a variable missing 'flag' is rejected before anything changes --
+_s216_bad_var = {
+    "_format": "scaffold_cascade",
+    "steps": [{"tool": "tools/x.json"}],
+    "variables": [{"name": "NoFlag"}],
+}
+_s216_raised = False
+try:
+    _s216_dock._import_cascade_data(_s216_bad_var)
+except ValueError:
+    _s216_raised = True
+check(_s216_raised, "216b: variable without 'flag' still raises ValueError")
+check(len(_s216_dock._slots) == _s216_before
+      and str(_s216_dock._slots[0]["tool_path"]).replace("\\", "/").endswith("tools/a.json"),
+      "216b: slots from the previous cascade kept after rejected variables")
+
+# --- 216c: --vars accepts a UTF-8 BOM file --------------------------------
+_s216_vars = Path(_s216_tmpdir) / "vars_bom.json"
+_s216_vars.write_bytes(b"\xef\xbb\xbf" + json.dumps({"--input": "x"}).encode("utf-8"))
+_s216_parsed, _s216_err = scaffold._parse_run_cascade_args(
+    ["--run-cascade", "c.json", "--vars", str(_s216_vars)])
+check(_s216_err is None and _s216_parsed.get("variables", {}).get("--input") == "x",
+      f"216c: --vars reads a UTF-8-with-BOM file (err={_s216_err!r})")
+
+# --- 216d: stale-recovery cleanup survives non-dict / non-UTF-8 files -----
+_s216_tmp = Path(tempfile.gettempdir())
+_s216_rec_list = _s216_tmp / f"scaffold_recovery_{scaffold._user_id()}_s216list.json"
+_s216_rec_u16 = _s216_tmp / f"scaffold_recovery_{scaffold._user_id()}_s216u16.json"
+_s216_rec_list.write_text("[]", encoding="utf-8")
+_s216_rec_u16.write_bytes("{}".encode("utf-16"))
+_s216_cleanup_ok = True
+try:
+    _s216_win._cleanup_stale_recovery_files()
+except Exception as _s216_exc:
+    _s216_cleanup_ok = False
+    print(f"    216d exception: {_s216_exc!r}")
+check(_s216_cleanup_ok, "216d: _cleanup_stale_recovery_files does not raise on [] / UTF-16 files")
+check(not _s216_rec_list.exists() and not _s216_rec_u16.exists(),
+      "216d: corrupt recovery files are removed")
+
+# --- 216e: non-bytes window/geometry does not break MainWindow() ----------
+_s216_settings = scaffold._create_settings()
+_s216_saved_geo = _s216_settings.value("window/geometry")
+_s216_settings.setValue("window/geometry", "not-a-geometry")
+_s216_settings.sync()
+_s216_w2 = None
+try:
+    _s216_w2 = scaffold.MainWindow()
+    _s216_geo_ok = True
+except TypeError:
+    _s216_geo_ok = False
+check(_s216_geo_ok, "216e: MainWindow() starts with a non-bytes window/geometry value")
+if _s216_w2 is not None:
+    check(_s216_w2.width() == scaffold.DEFAULT_WINDOW_WIDTH,
+          f"216e: falls back to the default width (got {_s216_w2.width()})")
+    _s216_w2.close()
+    _s216_w2.deleteLater()
+if _s216_saved_geo is None:
+    _s216_settings.remove("window/geometry")
+else:
+    _s216_settings.setValue("window/geometry", _s216_saved_geo)
+_s216_settings.sync()
+
+# --- 216f: _chain_schedule drops timers from an ended run -----------------
+_s216_fired = []
+_s216_dock._chain_schedule(10, lambda: _s216_fired.append("live"))
+_s216_dock._chain_schedule(10, lambda: _s216_fired.append("stale"))
+_s216_dock._chain_gen += 1  # simulate stop/cleanup between scheduling and firing
+_s216_dock._chain_schedule(10, lambda: _s216_fired.append("new"))
+for _ in range(10):
+    app.processEvents()
+    time.sleep(0.02)
+check(_s216_fired == ["new"], f"216f: only the current run's timer fires (got {_s216_fired})")
+
+# --- 216g: headless run on a UTF-16 cascade fails cleanly (main() peek) ---
+_s216_u16 = Path(_s216_tmpdir) / "u16_cascade.json"
+_s216_u16.write_bytes(json.dumps({"_format": "scaffold_cascade", "steps": []}).encode("utf-16"))
+_s216_env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+_s216_proc = _s216_subprocess.run(
+    [sys.executable, str(Path(scaffold.__file__)), "--run-cascade", str(_s216_u16)],
+    capture_output=True, text=True, timeout=60, env=_s216_env,
+)
+check(_s216_proc.returncode != 0 and "Traceback" not in _s216_proc.stderr,
+      f"216g: UTF-16 cascade gives a clean error, no traceback "
+      f"(rc={_s216_proc.returncode}, stderr tail={_s216_proc.stderr[-200:]!r})")
+
+# Cleanup section 216
+_s216_win.close()
+_s216_win.deleteLater()
+app.processEvents()
+QSettings("Scaffold", "Scaffold").remove("cascade")
+shutil.rmtree(_s216_tmpdir, ignore_errors=True)
+
 # =====================================================================
 # Final cleanup
 # =====================================================================

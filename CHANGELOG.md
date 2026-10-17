@@ -3,6 +3,46 @@
 All notable changes to Scaffold are documented here.
 
 
+## [Unreleased]
+
+Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixes that were each reproduced against v2.13.1 before changing code. Every behavioral fix has a regression check in new `test_functional.py` sections §211–§216, and each check was confirmed to fail on v2.13.1. Three v2.13.1 tests that were red on Linux/macOS (§107a–c, `test_security` 12b) now pass there.
+
+### Fixed — high impact
+
+- **Custom PATH binaries can be launched.** QProcess looks a bare program name up on the *parent's* PATH, not the child environment Scaffold injected, so a tool found only in a File > Custom PATH directory showed as installed but failed with "not found" on Run. The binary is now resolved against the extended PATH first.
+- **Cascades no longer hang in "running" on Linux/macOS when a step's binary is missing.** `errorOccurred(FailedToStart)` is delivered asynchronously there, after the synchronous guard has already run. A per-process handler now cleans the chain up, and headless `--run-cascade` exits instead of hanging.
+- **Regex captures work on Windows/macOS when launched as `python scaffold.py`.** The spawn-based worker pool could not resolve `__main__._regex_worker_entry`, so every stdout/stderr capture timed out after 2 s.
+- **PowerShell "Copy as" quoting.** Typographic single quotes (U+2018–U+201B) end a PowerShell single-quoted string and are now doubled; previously `x’; calc; ’` broke out of quoting. Tokens containing `,` (array operator, split into separate argv entries) or `@` (splatting) are now quoted.
+- **Positional password values are masked** in the `$ …` output line and in saved history.
+- **One malformed schema no longer stops Scaffold from starting.** A non-string `description`, or a list/dict value for `type`, `separator`, `elevated`, `group`, `flag` or `depends_on`, is now a validation error instead of an uncaught exception in the tool picker.
+- **Non-UTF-8 JSON** (e.g. UTF-16 written by PowerShell's `>`) now produces a clean "not valid UTF-8" error for schemas, presets, cascades, recovery files, `--vars` and the headless peek, instead of an unhandled `UnicodeDecodeError`.
+- **Headless variables.** `--var` / `--vars` accept the variable's flag as its name (`--var --input=x`); previously only flags shaped like bare identifiers could be supplied. Flags placed before `--run-cascade` are no longer silently ignored, and a `--vars` file with a UTF-8 BOM is accepted.
+
+### Fixed — medium / low
+
+- Stopping a cascade during an inter-step delay could let the stale timer advance the next run, skipping steps (run-generation guard).
+- Cascade import: `delay` is coerced to the spinbox's 0–3600 int range; non-object steps are rejected; a rejected file (unsafe path, bad variable) now leaves the sidebar intact instead of half torn down.
+- Mutually exclusive group: unchecking a sibling now also disables its `depends_on` children, which previously still reached argv.
+- Tool List (Ctrl+B), Back and Reload during a run reset the Run button, timers and "Running…" label.
+- On a crash, the process's last output is printed before the "Process crashed" banner.
+- Tool picker rescan, preset star toggling under a filter, and cascade-history delete/clear under a filter keep visibility and collapse state consistent.
+- Preset picker tolerates non-object preset files and non-string `_description`; Edit Description updates the tooltip.
+- View > Theme > System after choosing Light/Dark follows the OS again (Qt 6.8+ color-scheme override is cleared before reading).
+- Headless runs no longer overwrite or delete the GUI's crash-recovery files, or its saved window geometry.
+- CMD "Copy as" doubles trailing backslashes before the closing quote; subcommand tooltips and decorated field labels are HTML-escaped; cascade export writes forward slashes so Windows-saved cascades load on POSIX; the per-entry history size cap now applies to cascade runs; finished QProcess objects are released; the crash-recovery file is created under an owner-only umask; the stop-on-error button restyles on theme change; a capture with `"group": null` uses the default group; a non-bytes `window/geometry` setting no longer prevents startup.
+- `_cascade_path_is_safe` rejects backslash traversal (`..\..\x`) on POSIX too, so cascade files are judged the same on every platform.
+
+### Changed (visible behavior)
+
+- With Custom PATH directories configured, the `$ …` line and history show the resolved absolute binary path.
+- PowerShell copies quote tokens containing `,` or `@` (e.g. `'user@host'`); still literal and correct.
+- `--run-cascade` reports unknown tokens anywhere on the command line as usage errors.
+
+### Removed
+
+- Dead code: Python < 3.9 fallback in `_cascade_path_is_safe`, redundant local `import os`, duplicate `os.kill(SIGKILL)` before `QProcess.kill()`, unused locals in `_update_preview` / output search / `_parse_run_cascade_args`, duplicated header-arrow parsing in the tool picker.
+
+
 ## [v2.13.1] — 2026-04-26
 
 Headless `--run-cascade` now honors the saved `loop_mode` flag from the cascade JSON, with a safety rail. v2.13.0 silently dropped the flag and always ran a single iteration unless `--loop N` was supplied — the reasoning was CI safety, since honoring `loop_mode=true` from a saved file would mean infinite loops in cron jobs. The silent drop surprised users who built a cascade in the GUI with loop on and expected the same intent to carry over headlessly. This release surfaces the saved intent without compromising automation safety: if the cascade has `loop_mode=true`, `--loop N` is now **required** rather than ignored. Absent or false `loop_mode` continues to default to a single iteration.
