@@ -5,23 +5,23 @@ All notable changes to Scaffold are documented here.
 
 ## [Unreleased]
 
-Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixes that were each reproduced against v2.13.1 before changing code. Every behavioral fix has a regression check in new `test_functional.py` sections §211–§216, and each check was confirmed to fail on v2.13.1. Three v2.13.1 tests that were red on Linux/macOS (§107a–c, `test_security` 12b) now pass there.
+Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixes that were each reproduced against v2.13.1 before changing code. Every behavioral fix has a regression check in new `test_functional.py` sections §211 to §216, and each check was confirmed to fail on v2.13.1. Three v2.13.1 tests that were red on Linux/macOS (§107a to §107c, `test_security` 12b) now pass there.
 
-### Fixed — high impact
+### Fixed (high impact)
 
 - **Custom PATH binaries can be launched.** QProcess looks a bare program name up on the *parent's* PATH, not the child environment Scaffold injected, so a tool found only in a File > Custom PATH directory showed as installed but failed with "not found" on Run. The binary is now resolved against the extended PATH first.
 - **Cascades no longer hang in "running" on Linux/macOS when a step's binary is missing.** `errorOccurred(FailedToStart)` is delivered asynchronously there, after the synchronous guard has already run. A per-process handler now cleans the chain up, and headless `--run-cascade` exits instead of hanging.
 - **Regex captures work on Windows/macOS when launched as `python scaffold.py`.** The spawn-based worker pool could not resolve `__main__._regex_worker_entry`, so every stdout/stderr capture timed out after 2 s.
-- **PowerShell "Copy as" quoting.** Typographic single quotes (U+2018–U+201B) end a PowerShell single-quoted string and are now doubled; previously `x’; calc; ’` broke out of quoting. Tokens containing `,` (array operator, split into separate argv entries) or `@` (splatting) are now quoted.
+- **PowerShell "Copy as" quoting.** Typographic single quotes (U+2018 to U+201B) end a PowerShell single-quoted string and are now doubled; previously `x’; calc; ’` broke out of quoting. Tokens containing `,` (array operator, split into separate argv entries) or `@` (splatting) are now quoted.
 - **Positional password values are masked** in the `$ …` output line and in saved history.
 - **One malformed schema no longer stops Scaffold from starting.** A non-string `description`, or a list/dict value for `type`, `separator`, `elevated`, `group`, `flag` or `depends_on`, is now a validation error instead of an uncaught exception in the tool picker.
 - **Non-UTF-8 JSON** (e.g. UTF-16 written by PowerShell's `>`) now produces a clean "not valid UTF-8" error for schemas, presets, cascades, recovery files, `--vars` and the headless peek, instead of an unhandled `UnicodeDecodeError`.
 - **Headless variables.** `--var` / `--vars` accept the variable's flag as its name (`--var --input=x`); previously only flags shaped like bare identifiers could be supplied. Flags placed before `--run-cascade` are no longer silently ignored, and a `--vars` file with a UTF-8 BOM is accepted.
 
-### Fixed — medium / low
+### Fixed (medium and low impact)
 
 - Stopping a cascade during an inter-step delay could let the stale timer advance the next run, skipping steps (run-generation guard).
-- Cascade import: `delay` is coerced to the spinbox's 0–3600 int range; non-object steps are rejected; a rejected file (unsafe path, bad variable) now leaves the sidebar intact instead of half torn down.
+- Cascade import: `delay` is coerced to the spinbox's 0 to 3600 integer range; non-object steps are rejected; a rejected file (unsafe path, bad variable) now leaves the sidebar intact instead of half torn down.
 - Mutually exclusive group: unchecking a sibling now also disables its `depends_on` children, which previously still reached argv.
 - Tool List (Ctrl+B), Back and Reload during a run reset the Run button, timers and "Running…" label.
 - On a crash, the process's last output is printed before the "Process crashed" banner.
@@ -37,6 +37,15 @@ Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixe
 - With Custom PATH directories configured, the `$ …` line and history show the resolved absolute binary path.
 - PowerShell copies quote tokens containing `,` or `@` (e.g. `'user@host'`); still literal and correct.
 - `--run-cascade` reports unknown tokens anywhere on the command line as usage errors.
+
+### Documentation
+
+- README rewritten for clarity: plain wording, no dash punctuation, first-person voice in the project sections.
+- README: new *Running cascades headless* section (options, exit codes, `QT_QPA_PLATFORM=offscreen` for machines with no display); headless mode shipped in v2.13.0 but was undocumented.
+- README: fixed `python scaffold.py tools/nmap.json` and other examples that pointed at `tools/` for bundled files; bundled schemas live in `scaffold_data/tools/`.
+- README: Custom PATH section notes that the command echo and history show the resolved program path; lines-of-code badge updated; UTF-8 requirement added to Limitations.
+- `--help`: `--var` explains that the name is the variable's flag; notes that options may appear in any order.
+- `CASCADE_LLM_GENERATION_GUIDE.md`: documents the `delay` range, that steps must be objects, forward-slash paths and the `..` rule.
 
 ### Removed
 

@@ -16,7 +16,7 @@
 
 """ test_functional.py — end-to-end behavioral test suite for Scaffold.
 
-Runs as a single linear script (sections 1–114), tracking pass/fail counts.
+Runs as a single linear script (sections 1 to 216), tracking pass/fail counts.
 Each section spins up a MainWindow, exercises a feature area, then cleans up.
 
 Coverage:

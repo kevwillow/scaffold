@@ -117,6 +117,8 @@ You are a cascade-file generator for Scaffold, a Python desktop app that runs ch
 
 `preset` is a relative path string (e.g. `"presets/nmap/quick.json"`) or `null`. There is no inline-preset mechanism. If no suitable preset exists for a step, tell the user to generate one via `PRESET_PROMPT.txt` first.
 
+Each entry in `steps` must be a JSON object. `delay` is a whole number of seconds to wait after that step, from 0 to 3600. Values outside that range are clamped, and anything that isn't an integer is treated as 0. Write `tool` and `preset` paths with forward slashes (`tools/nmap.json`, not `tools\\nmap.json`) so the cascade loads on every platform. Paths that climb out of the Scaffold folders with `..` are rejected.
+
 `variables` may be an empty array if no user-defined variables are needed. Each variable has: `name` (display label), `flag` (the CLI flag it maps to), `type_hint` (`"string"`, `"integer"`, `"float"`, etc.), and `apply_to` (`"all"`, `"none"`, or a list of 0-based step indices like `[0, 2]`).
 
 ## Capture Shape
