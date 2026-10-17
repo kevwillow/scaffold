@@ -3568,6 +3568,9 @@ class ToolPicker(QWidget):
         self.empty_label.setVisible(not has_items)
         self.open_btn.setEnabled(False)
         self.search_bar.clear()
+        # setRowCount keeps each row index's old hidden flag, and clear() emits
+        # nothing when the filter is already empty, so reapply visibility here.
+        self._on_filter("")
         self.search_bar.setFocus()
         self.table.resizeColumnToContents(1)
         _fit_last_column(self.table)
@@ -3676,14 +3679,7 @@ class ToolPicker(QWidget):
         """Toggle folder collapse when a header row is clicked."""
         if row >= len(self._row_map) or self._row_map[row] is not None:
             return  # tool row or out of range
-        item = self.table.item(row, 1)
-        if not item:
-            return
-        text = item.text()
-        for prefix in ("\u25bc ", "\u25b6 "):
-            if text.startswith(prefix):
-                text = text[len(prefix):]
-                break
+        text = self._row_folder[row]
         if text in self._collapsed_folders:
             self._collapsed_folders.discard(text)
         else:
@@ -3698,11 +3694,7 @@ class ToolPicker(QWidget):
             item = self.table.item(row, 1)
             if not item:
                 continue
-            text = item.text()
-            for prefix in ("\u25bc ", "\u25b6 "):
-                if text.startswith(prefix):
-                    text = text[len(prefix):]
-                    break
+            text = self._row_folder[row]
             arrow = "\u25b6" if text in self._collapsed_folders else "\u25bc"
             item.setText(f"{arrow} {text}")
         self._on_filter(self.search_bar.text())
@@ -4016,7 +4008,9 @@ class PresetPicker(QDialog):
             desc = ""
             try:
                 pdata = _read_json_file(p)
-                desc = pdata.get("_description", "") or ""
+                if isinstance(pdata, dict):
+                    d = pdata.get("_description")
+                    desc = d if isinstance(d, str) else ""
             except (json.JSONDecodeError, OSError):
                 pass
             desc_item = QTableWidgetItem(desc)
@@ -4041,6 +4035,8 @@ class PresetPicker(QDialog):
         self.edit_desc_btn.setEnabled(False)
         if self.delete_btn is not None:
             self.delete_btn.setEnabled(False)
+        # Rows were reordered in place; old hidden flags stay on their indices.
+        self._on_filter(self.search_bar.text())
 
     def _on_cell_clicked(self, row: int, col: int) -> None:
         """Toggle favorite star when column 0 is clicked."""
@@ -4162,8 +4158,16 @@ class PresetPicker(QDialog):
         except (OSError, json.JSONDecodeError) as e:
             QMessageBox.warning(self, "Error", f"Cannot read preset file:\n{e}")
             return
+        if not isinstance(data, dict):
+            QMessageBox.warning(
+                self, "Error",
+                f"Cannot read preset file:\n{preset_path.name} is not a JSON object",
+            )
+            return
 
-        current_desc = data.get("_description", "")
+        current_desc = data.get("_description")
+        if not isinstance(current_desc, str):
+            current_desc = ""
         new_desc, ok = QInputDialog.getText(
             self, "Edit Description", "Description:", text=current_desc,
         )
@@ -4181,7 +4185,11 @@ class PresetPicker(QDialog):
         # Update table cell in place
         desc_item = self.table.item(row, 2)
         if desc_item:
-            desc_item.setText(new_desc.strip())
+            desc = new_desc.strip()
+            desc_item.setText(desc)
+            desc_item.setToolTip(
+                f"<p style='max-width:400px;'>{html.escape(desc)}</p>" if desc else ""
+            )
         titles = {"load": "Preset List", "delete": "Delete Preset", "edit": "Edit Preset"}
         self.setWindowTitle(
             f"{titles.get(self.mode, self.mode)}"
@@ -4740,6 +4748,8 @@ class CascadeHistoryDialog(QDialog):
         self.empty_label.setVisible(empty)
         self.clear_btn.setEnabled(not empty)
         self.export_all_btn.setEnabled(not empty)
+        # Rebuilt items start visible; keep an active filter applied.
+        self._on_filter(self.search_bar.text())
         self._on_selection()
 
     # ----- selection & enablement ------------------------------------------
@@ -5022,6 +5032,7 @@ class CascadeHeadlessRunner:
         "cascade/visible",
         "cascade_history/entries",
         "cascade_history/_version",
+        "window/geometry",
     )
 
     def __init__(
@@ -5062,6 +5073,10 @@ class CascadeHeadlessRunner:
         app = QApplication.instance() or QApplication(sys.argv[:1])
 
         self._snapshot_settings()
+        # Don't let the hidden window reopen the GUI's last tool: loading it
+        # would show that tool's crash-recovery prompt and consume the file.
+        # _restore_settings puts the key back.
+        _create_settings().remove("session/last_tool")
 
         prev_suppress = MainWindow._suppress_welcome_dialog
         MainWindow._suppress_welcome_dialog = True
@@ -5303,8 +5318,6 @@ class CascadeHeadlessRunner:
         # (which the cascade dock calls with the full step list right before
         # _chain_cleanup nulls _cascade_steps).  These are restored implicitly
         # when the MainWindow is destroyed at end of run.
-        self._captured_runs: list[dict] = []
-
         def patched_append(entry):
             if isinstance(entry, dict) and entry.get("id"):
                 self._captured_runs.append({
@@ -5325,6 +5338,11 @@ class CascadeHeadlessRunner:
         mw._append_cascade_run = patched_append
         mw._update_cascade_run = patched_update
         mw.cascade_dock._save_cascade = lambda: None
+        # Leave the GUI's crash-recovery files alone: autosave would overwrite
+        # them with headless values, and step loads and closeEvent delete them.
+        mw._autosave_timer.stop()
+        mw._autosave_timer.timeout.disconnect()
+        mw._clear_recovery_file = lambda: None
 
     def _uninstall_patches(self) -> None:
         for target, attr, original in self._patches:
@@ -5553,11 +5571,7 @@ def _parse_run_cascade_args(argv: list[str]) -> tuple[dict, str | None]:
     loop_count: int | None = None
     summary_path: str | None = None
 
-    KNOWN = {"--run-cascade", "--var", "--vars", "--loop", "--summary"}
     i = 0
-    # Skip everything before --run-cascade (already validated by caller)
-    while i < len(argv) and argv[i] != "--run-cascade":
-        i += 1
     while i < len(argv):
         a = argv[i]
         if a == "--run-cascade":
@@ -5574,10 +5588,13 @@ def _parse_run_cascade_args(argv: list[str]) -> tuple[dict, str | None]:
             name, _, value = spec.partition("=")
             if not name:
                 return {}, "--var name cannot be empty"
-            if not _HEADLESS_VAR_NAME_RE.match(name):
+            # Values are keyed by the variable's flag (see CascadeVariableDialog.
+            # get_values), so accept any flag the definition dialog accepts.
+            if not (_HEADLESS_VAR_NAME_RE.match(name) or _CASCADE_VAR_FLAG_RE.match(name)):
                 return {}, (
                     f"--var name {name!r} is invalid "
-                    f"(must match [A-Za-z_][A-Za-z0-9_]*)"
+                    f"(must match [A-Za-z_][A-Za-z0-9_]* or be a cascade "
+                    f"variable flag such as --input)"
                 )
             variables[name] = value
             i += 2
@@ -5586,15 +5603,18 @@ def _parse_run_cascade_args(argv: list[str]) -> tuple[dict, str | None]:
                 return {}, "--vars requires a JSON file path"
             try:
                 loaded = json.loads(Path(argv[i + 1]).read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
                 return {}, f"--vars failed to read {argv[i + 1]!r}: {exc}"
             if not isinstance(loaded, dict):
                 return {}, f"--vars file must contain a JSON object (got {type(loaded).__name__})"
             for k, v in loaded.items():
-                if not isinstance(k, str) or not _HEADLESS_VAR_NAME_RE.match(k):
+                if not isinstance(k, str) or not (
+                    _HEADLESS_VAR_NAME_RE.match(k) or _CASCADE_VAR_FLAG_RE.match(k)
+                ):
                     return {}, (
                         f"--vars contains invalid name {k!r} "
-                        f"(must match [A-Za-z_][A-Za-z0-9_]*)"
+                        f"(must match [A-Za-z_][A-Za-z0-9_]* or be a cascade "
+                        f"variable flag such as --input)"
                     )
                 file_vars[k] = "" if v is None else str(v)
             i += 2
