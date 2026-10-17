@@ -19638,7 +19638,7 @@ if sys.platform == "win32":
 else:
     _s164_script_path = os.path.join(_s164_tmpdir, _s164_script_name)
     Path(_s164_script_path).write_text("#!/bin/sh\n", encoding="utf-8")
-    os.chmod(_s164_script_path, 0o755)
+    os.chmod(_s164_script_path, 0o700)
 
 # 164i: without custom paths, dummy script not found
 scaffold._set_custom_paths([])
@@ -20052,7 +20052,7 @@ if sys.platform == "win32":
 else:
     _s166_shim = os.path.join(_s166_bin_dir, "ls")
     Path(_s166_shim).write_text("#!/bin/sh\necho CUSTOM_WINS\n", encoding="utf-8")
-    os.chmod(_s166_shim, 0o755)
+    os.chmod(_s166_shim, 0o700)
     _s166_resolved = shutil.which("ls", path=scaffold._extended_path())
     print(f"    [166.3d] shim={_s166_shim!r}, resolved={_s166_resolved!r}")
     check(_s166_resolved == _s166_shim,
@@ -20062,7 +20062,7 @@ else:
 if sys.platform != "win32":
     _s166_nox = os.path.join(_s166_bin_dir, "s166_noexec")
     Path(_s166_nox).write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
-    os.chmod(_s166_nox, 0o644)
+    os.chmod(_s166_nox, 0o600)
     print(f"    [166.3e] setup: non-executable={_s166_nox!r} mode=0o644")
     _s166_found = scaffold._binary_in_path("s166_noexec")
     check(not _s166_found,
@@ -20074,7 +20074,7 @@ else:
 if sys.platform != "win32":
     _s166_real = os.path.join(_s166_bin_dir, "s166_real_exec")
     Path(_s166_real).write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    os.chmod(_s166_real, 0o755)
+    os.chmod(_s166_real, 0o700)
     _s166_sym = os.path.join(_s166_bin_dir, "s166_sym_exec")
     try:
         os.symlink(_s166_real, _s166_sym)
@@ -20500,7 +20500,7 @@ if sys.platform == "win32":
 else:
     _s166_6_script = os.path.join(_s166_6_dir, _s166_6_binname)
     Path(_s166_6_script).write_text("#!/bin/sh\n", encoding="utf-8")
-    os.chmod(_s166_6_script, 0o755)
+    os.chmod(_s166_6_script, 0o700)
 
 # Create tool JSON with the missing binary
 _s166_6_tool_dir = tempfile.mkdtemp(prefix="scaffold_s166_6_tool_")
@@ -30780,7 +30780,7 @@ try:
         _s215_cdir.mkdir()
         _s215_cbin = _s215_cdir / "zzs215customtool"
         _s215_cbin.write_text("#!/bin/sh\necho s215-custom-path-ok\n", encoding="utf-8")
-        os.chmod(_s215_cbin, 0o755)
+        os.chmod(_s215_cbin, 0o700)
         _s215_ctool = {
             "_format": "scaffold_schema",
             "tool": "s215_custom",
