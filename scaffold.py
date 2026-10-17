@@ -6952,11 +6952,14 @@ def _get_regex_pool():
             # top-level code. We neutralise this by temporarily hiding
             # __main__.__file__ so multiprocessing skips the main-module
             # re-import; the child still unpickles scaffold._regex_worker_entry
-            # via a normal `import scaffold` lookup.
+            # via a normal `import scaffold` lookup.  Skipped when scaffold.py
+            # itself is __main__: the task then pickles as
+            # __main__._regex_worker_entry, which only resolves if the child
+            # re-imports the main module (safe — it has a __main__ guard).
             main_mod = sys.modules.get("__main__")
             saved_file = None
             had_file = False
-            if main_mod is not None:
+            if main_mod is not None and _regex_worker_entry.__module__ != "__main__":
                 had_file = hasattr(main_mod, "__file__")
                 if had_file:
                     saved_file = main_mod.__file__
@@ -7112,7 +7115,9 @@ def extract_captures(
             if not pattern or not isinstance(pattern, str):
                 continue
             stream = stdout_tail if source == "stdout" else stderr_tail
-            group = entry.get("group", 1)
+            # Validation accepts an explicit null as "default group".
+            group = entry.get("group")
+            group = 1 if group is None else group
             success, value, err_type = _bounded_regex_search(pattern, stream, group)
             if not success:
                 errors.append((name, value, err_type))
@@ -7329,6 +7334,9 @@ class CascadeSidebar(QDockWidget):
         self._argv_warned_captures: set[str] = set()
         self._unset_warned_captures: set[str] = set()
         self._chain_paused = False
+        # Bumped on every run start and cleanup so step timers scheduled by
+        # a stopped run can't fire into the next one (see _chain_schedule).
+        self._chain_gen = 0
         # Cascade history tracking
         self._cascade_run_id: str | None = None
         self._cascade_steps: list[dict] = []
@@ -7688,7 +7696,8 @@ class CascadeSidebar(QDockWidget):
             abs_p = Path(p)
             for base in (_user_data_root(), _bundled_root()):
                 try:
-                    return str(abs_p.relative_to(base))
+                    # Forward slashes so Windows-saved cascades load on POSIX.
+                    return abs_p.relative_to(base).as_posix()
                 except ValueError:
                     continue
             return p
@@ -7732,6 +7741,9 @@ class CascadeSidebar(QDockWidget):
             self._main_window.statusBar().showMessage(
                 f"Cascade truncated to {CASCADE_MAX_SLOTS} steps (had {original_len})"
             )
+
+        if not all(isinstance(step, dict) for step in steps):
+            raise ValueError("Each cascade step must be an object")
 
         # Migrate renamed capture sources before validation
         _SOURCE_MIGRATION = {"stdout_full": "stdout_tail", "stderr_full": "stderr_tail"}
@@ -7783,10 +7795,17 @@ class CascadeSidebar(QDockWidget):
                 )
             tool_path = _resolve_step_path(tool_value) if tool_value else None
             preset_path = _resolve_step_path(preset_value) if preset_value else None
+            # Coerce to the spinbox's int range: a non-int would make
+            # setValue raise mid-rebuild, and an out-of-range value would
+            # differ from what the spinbox shows.
+            delay = step.get("delay", 0)
+            if not isinstance(delay, int) or isinstance(delay, bool):
+                delay = 0
+            delay = max(0, min(delay, 3600))
             new_slots.append({
                 "tool_path": tool_path,
                 "preset_path": preset_path,
-                "delay": step.get("delay", 0),
+                "delay": delay,
                 "captures": step.get("captures", []),
             })
 
@@ -8404,6 +8423,7 @@ class CascadeSidebar(QDockWidget):
         self._chain_current = -1
         self._chain_loop_count = 0
         self._chain_state = CHAIN_LOADING
+        self._chain_gen += 1
 
         # Record cascade run start
         self._cascade_run_loop_index = 0
@@ -8601,6 +8621,16 @@ class CascadeSidebar(QDockWidget):
         if new_text != original:
             form.extra_flags_edit.setPlainText(new_text)
 
+    def _chain_schedule(self, ms: int, step_fn) -> None:
+        """Run step_fn after ms unless this chain run has ended meanwhile."""
+        gen = self._chain_gen
+
+        def _fire():
+            if gen == self._chain_gen:
+                step_fn()
+
+        QTimer.singleShot(ms, self, _fire)
+
     def _chain_advance(self) -> None:
         """Load and run the next cascade step in the chain."""
         if self._chain_state == CHAIN_IDLE:
@@ -8641,7 +8671,7 @@ class CascadeSidebar(QDockWidget):
                 last_slot_index = self._chain_queue[-1]
                 delay_secs = self._slots[last_slot_index].get("delay", 0)
                 delay_ms = max(delay_secs * 1000, 300)
-                QTimer.singleShot(delay_ms, self._chain_advance)
+                self._chain_schedule(delay_ms, self._chain_advance)
                 return
             else:
                 runs = self._chain_loop_count + 1
@@ -8904,7 +8934,7 @@ class CascadeSidebar(QDockWidget):
                 return  # multi-token halt fired
 
         # Small delay to let the form render before executing
-        QTimer.singleShot(150, self._chain_execute_current)
+        self._chain_schedule(150, self._chain_execute_current)
 
     def _chain_execute_current(self) -> None:
         """Execute the currently loaded tool after form has rendered."""
@@ -9019,7 +9049,7 @@ class CascadeSidebar(QDockWidget):
                             self._main_window.statusBar().showMessage(
                                 f"Cascade: waiting {delay_secs}s before step {next_step}..."
                             )
-                        QTimer.singleShot(delay_ms, self._chain_advance)
+                        self._chain_schedule(delay_ms, self._chain_advance)
                 # broadly defensive — wraps the full Qt on-finished callback body (~90 lines across multiple helpers); narrowing would risk leaving the cascade in a non-idle state on an unanticipated error.
                 except Exception as _wrap_exc:
                     # Restore original handler so main window is usable
@@ -9053,13 +9083,7 @@ class CascadeSidebar(QDockWidget):
             # Record step start time for cascade history
             self._cascade_step_start = time.time()
 
-            # Start the command
-            self._main_window._on_run_stop()
-
-            # If process failed to even start (e.g. binary not found),
-            # _on_error fires and sets process=None without _on_finished.
-            # Detect this and clean up.
-            if self._main_window.process is None and self._chain_state == CHAIN_RUNNING:
+            def _chain_failed_to_start():
                 # Record the failed step in cascade history
                 if self._cascade_run_id is not None:
                     _fidx = self._chain_queue[self._chain_current]
@@ -9069,6 +9093,30 @@ class CascadeSidebar(QDockWidget):
                     ))
                 self._cascade_finish_status = "error_halted"
                 self._chain_cleanup("Cascade stopped: process failed to start")
+
+            # Start the command
+            self._main_window._on_run_stop()
+
+            # If process failed to even start (e.g. binary not found),
+            # _on_error fires and sets process=None without _on_finished.
+            # On Windows errorOccurred(FailedToStart) is emitted inside
+            # start(); on Linux/macOS it arrives on a later event-loop turn,
+            # so also watch the new process for it.
+            _proc = self._main_window.process
+            if _proc is None and self._chain_state == CHAIN_RUNNING:
+                _chain_failed_to_start()
+            elif isinstance(_proc, QProcess) and self._chain_state == CHAIN_RUNNING:
+                _gen, _step = self._chain_gen, self._chain_current
+
+                def _on_async_start_error(error):
+                    # Connected after MainWindow._on_error, so runs after it.
+                    if (error == QProcess.ProcessError.FailedToStart
+                            and _gen == self._chain_gen
+                            and _step == self._chain_current
+                            and self._chain_state == CHAIN_RUNNING):
+                        _chain_failed_to_start()
+
+                _proc.errorOccurred.connect(_on_async_start_error)
         # broadly defensive — wraps the entire cascade-step setup/launch path (closure definition, handler install, process start, failed-start cleanup); narrowing would risk stranding the chain on an unexpected error class.
         except Exception as e:
             try:
@@ -9093,7 +9141,7 @@ class CascadeSidebar(QDockWidget):
             self._chain_state = CHAIN_LOADING
             self.pause_chain_btn.setText("Pause")
             self._main_window.statusBar().showMessage("Cascade resumed")
-            QTimer.singleShot(100, self._chain_advance)
+            self._chain_schedule(100, self._chain_advance)
 
     def _build_chain_step_record(
         self,
@@ -9169,6 +9217,7 @@ class CascadeSidebar(QDockWidget):
         # None at the start of each new run at _on_run_chain (~line 6900).
 
         self._chain_state = CHAIN_IDLE
+        self._chain_gen += 1
         self._chain_paused = False
         self._chain_queue = []
         self._chain_current = -1
@@ -9238,8 +9287,8 @@ class CascadeSidebar(QDockWidget):
         _border = DARK_COLORS["border"] if _dark_mode else "#c0c0c0"
         self._chain_qss = f"QPushButton {{ border: 1px solid {_border}; {self._chain_btn_body} }}"
         self._refresh_button_labels()
-        self._clear_slot_highlights()
         self._style_loop_btn()
+        self._style_stop_on_error_btn()
         dim_color = DARK_COLORS["text_dim"] if _dark_mode else "#666666"
         for info in self._slot_widgets:
             info["delay_label"].setStyleSheet(f"font-size: 11px; color: {dim_color};")
