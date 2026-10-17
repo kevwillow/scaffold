@@ -1538,7 +1538,7 @@ class ToolForm(QWidget):
                 self.sub_combo.addItem(label, sub["name"])
                 if full_desc:
                     idx = self.sub_combo.count() - 1
-                    self.sub_combo.setItemData(idx, f"<p>{full_desc}</p>", Qt.ItemDataRole.ToolTipRole)
+                    self.sub_combo.setItemData(idx, f"<p>{html.escape(full_desc)}</p>", Qt.ItemDataRole.ToolTipRole)
             self.sub_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             self.sub_combo.setMinimumWidth(200)
             self.sub_combo.setMaximumWidth(600)
@@ -2094,9 +2094,9 @@ class ToolForm(QWidget):
                 field = self.fields[fk]
                 w = field["widget"]
                 if isinstance(w, QCheckBox):
-                    w.blockSignals(True)
+                    # Signals stay live so the sibling's depends_on children
+                    # are re-evaluated; the unchecked state returns early above.
                     w.setChecked(False)
-                    w.blockSignals(False)
         self.command_changed.emit()
 
     # ------------------------------------------------------------------
@@ -2593,6 +2593,7 @@ class ToolForm(QWidget):
         """Return a copy of cmd with password-type values replaced by ********."""
         # Collect password flags and their separators for active scopes
         pw_flags = {}
+        pw_positional = set()
         sub = self.get_current_subcommand()
         scopes = {self.GLOBAL}
         if sub:
@@ -2603,11 +2604,16 @@ class ToolForm(QWidget):
                 continue
             if field["arg"]["type"] != "password":
                 continue
-            if self.get_field_value(key) is None:
+            value = self.get_field_value(key)
+            if value is None:
+                continue
+            if field["arg"]["positional"]:
+                # No flag token precedes a positional value, so match the value
+                pw_positional.add(str(value))
                 continue
             pw_flags[flag] = field["arg"].get("separator", "space")
 
-        if not pw_flags:
+        if not pw_flags and not pw_positional:
             return list(cmd)
 
         # Build set of ALL flags in the schema (for prefix-collision checks)
@@ -2650,7 +2656,7 @@ class ToolForm(QWidget):
                         matched = True
                         break
             if not matched:
-                masked.append(token)
+                masked.append("********" if token in pw_positional else token)
             i += 1
         return masked
 
@@ -2708,7 +2714,7 @@ class ToolForm(QWidget):
 
             # Rebuild label text only if it has any theme-sensitive decoration
             if arg["required"] or arg.get("dangerous") or arg.get("deprecated"):
-                label_text = arg["name"]
+                label_text = html.escape(arg["name"])
                 if arg["required"]:
                     label_text = f"<b>{label_text} <span style='color:{req_color};'>*</span></b>"
                 if arg.get("dangerous"):
@@ -2798,6 +2804,11 @@ def _format_bash(cmd: list[str]) -> str:
 
 
 _SAFE_TOKEN_RE = re.compile(r'^[A-Za-z0-9_./:=+,@%-]+$')
+# PowerShell needs its own whitelist: in argument mode ',' builds an array
+# (split into separate argv entries) and a leading '@' splats a variable.
+_PS_SAFE_TOKEN_RE = re.compile(r'^[A-Za-z0-9_./:=+%-]+$')
+# PowerShell treats the typographic single quotes as ' too, so all must be doubled
+_PS_SINGLE_QUOTES_RE = re.compile("(['\u2018\u2019\u201a\u201b])")
 
 
 def _format_powershell(cmd: list[str]) -> str:
@@ -2813,14 +2824,14 @@ def _format_powershell(cmd: list[str]) -> str:
     for i, token in enumerate(cmd):
         # Replace newlines — PS single-quoted strings cannot span lines
         token = token.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
-        if _SAFE_TOKEN_RE.match(token):
+        if _PS_SAFE_TOKEN_RE.match(token):
             parts.append(token)
         elif i == 0:
             # Binary needs & prefix and single-quoting
-            escaped = token.replace("'", "''")
+            escaped = _PS_SINGLE_QUOTES_RE.sub(r"\1\1", token)
             parts.append(f"& '{escaped}'")
         else:
-            escaped = token.replace("'", "''")
+            escaped = _PS_SINGLE_QUOTES_RE.sub(r"\1\1", token)
             parts.append(f"'{escaped}'")
     return " ".join(parts)
 
@@ -2842,6 +2853,11 @@ def _format_cmd(cmd: list[str]) -> str:
             parts.append(token)
         else:
             escaped = token.replace('"', '""')
+            # Programs parsing argv with MSVCRT rules read \" as a literal
+            # quote, so double any trailing backslashes before the closing quote
+            m = re.search(r'\\+$', escaped)
+            if m:
+                escaped += m.group(0)
             parts.append(f'"{escaped}"')
     return " ".join(parts)
 
@@ -3587,6 +3603,9 @@ class ToolPicker(QWidget):
         self.empty_label.setVisible(not has_items)
         self.open_btn.setEnabled(False)
         self.search_bar.clear()
+        # setRowCount keeps each row index's old hidden flag, and clear() emits
+        # nothing when the filter is already empty, so reapply visibility here.
+        self._on_filter("")
         self.search_bar.setFocus()
         self.table.resizeColumnToContents(1)
         _fit_last_column(self.table)
@@ -3695,14 +3714,7 @@ class ToolPicker(QWidget):
         """Toggle folder collapse when a header row is clicked."""
         if row >= len(self._row_map) or self._row_map[row] is not None:
             return  # tool row or out of range
-        item = self.table.item(row, 1)
-        if not item:
-            return
-        text = item.text()
-        for prefix in ("\u25bc ", "\u25b6 "):
-            if text.startswith(prefix):
-                text = text[len(prefix):]
-                break
+        text = self._row_folder[row]
         if text in self._collapsed_folders:
             self._collapsed_folders.discard(text)
         else:
@@ -3717,11 +3729,7 @@ class ToolPicker(QWidget):
             item = self.table.item(row, 1)
             if not item:
                 continue
-            text = item.text()
-            for prefix in ("\u25bc ", "\u25b6 "):
-                if text.startswith(prefix):
-                    text = text[len(prefix):]
-                    break
+            text = self._row_folder[row]
             arrow = "\u25b6" if text in self._collapsed_folders else "\u25bc"
             item.setText(f"{arrow} {text}")
         self._on_filter(self.search_bar.text())
@@ -4035,7 +4043,9 @@ class PresetPicker(QDialog):
             desc = ""
             try:
                 pdata = _read_json_file(p)
-                desc = pdata.get("_description", "") or ""
+                if isinstance(pdata, dict):
+                    d = pdata.get("_description")
+                    desc = d if isinstance(d, str) else ""
             except (json.JSONDecodeError, OSError):
                 pass
             desc_item = QTableWidgetItem(desc)
@@ -4060,6 +4070,8 @@ class PresetPicker(QDialog):
         self.edit_desc_btn.setEnabled(False)
         if self.delete_btn is not None:
             self.delete_btn.setEnabled(False)
+        # Rows were reordered in place; old hidden flags stay on their indices.
+        self._on_filter(self.search_bar.text())
 
     def _on_cell_clicked(self, row: int, col: int) -> None:
         """Toggle favorite star when column 0 is clicked."""
@@ -4181,8 +4193,16 @@ class PresetPicker(QDialog):
         except (OSError, json.JSONDecodeError) as e:
             QMessageBox.warning(self, "Error", f"Cannot read preset file:\n{e}")
             return
+        if not isinstance(data, dict):
+            QMessageBox.warning(
+                self, "Error",
+                f"Cannot read preset file:\n{preset_path.name} is not a JSON object",
+            )
+            return
 
-        current_desc = data.get("_description", "")
+        current_desc = data.get("_description")
+        if not isinstance(current_desc, str):
+            current_desc = ""
         new_desc, ok = QInputDialog.getText(
             self, "Edit Description", "Description:", text=current_desc,
         )
@@ -4200,7 +4220,11 @@ class PresetPicker(QDialog):
         # Update table cell in place
         desc_item = self.table.item(row, 2)
         if desc_item:
-            desc_item.setText(new_desc.strip())
+            desc = new_desc.strip()
+            desc_item.setText(desc)
+            desc_item.setToolTip(
+                f"<p style='max-width:400px;'>{html.escape(desc)}</p>" if desc else ""
+            )
         titles = {"load": "Preset List", "delete": "Delete Preset", "edit": "Edit Preset"}
         self.setWindowTitle(
             f"{titles.get(self.mode, self.mode)}"
@@ -4759,6 +4783,8 @@ class CascadeHistoryDialog(QDialog):
         self.empty_label.setVisible(empty)
         self.clear_btn.setEnabled(not empty)
         self.export_all_btn.setEnabled(not empty)
+        # Rebuilt items start visible; keep an active filter applied.
+        self._on_filter(self.search_bar.text())
         self._on_selection()
 
     # ----- selection & enablement ------------------------------------------
@@ -5041,6 +5067,7 @@ class CascadeHeadlessRunner:
         "cascade/visible",
         "cascade_history/entries",
         "cascade_history/_version",
+        "window/geometry",
     )
 
     def __init__(
@@ -5081,6 +5108,10 @@ class CascadeHeadlessRunner:
         app = QApplication.instance() or QApplication(sys.argv[:1])
 
         self._snapshot_settings()
+        # Don't let the hidden window reopen the GUI's last tool: loading it
+        # would show that tool's crash-recovery prompt and consume the file.
+        # _restore_settings puts the key back.
+        _create_settings().remove("session/last_tool")
 
         prev_suppress = MainWindow._suppress_welcome_dialog
         MainWindow._suppress_welcome_dialog = True
@@ -5322,8 +5353,6 @@ class CascadeHeadlessRunner:
         # (which the cascade dock calls with the full step list right before
         # _chain_cleanup nulls _cascade_steps).  These are restored implicitly
         # when the MainWindow is destroyed at end of run.
-        self._captured_runs: list[dict] = []
-
         def patched_append(entry):
             if isinstance(entry, dict) and entry.get("id"):
                 self._captured_runs.append({
@@ -5344,6 +5373,11 @@ class CascadeHeadlessRunner:
         mw._append_cascade_run = patched_append
         mw._update_cascade_run = patched_update
         mw.cascade_dock._save_cascade = lambda: None
+        # Leave the GUI's crash-recovery files alone: autosave would overwrite
+        # them with headless values, and step loads and closeEvent delete them.
+        mw._autosave_timer.stop()
+        mw._autosave_timer.timeout.disconnect()
+        mw._clear_recovery_file = lambda: None
 
     def _uninstall_patches(self) -> None:
         for target, attr, original in self._patches:
@@ -5572,11 +5606,7 @@ def _parse_run_cascade_args(argv: list[str]) -> tuple[dict, str | None]:
     loop_count: int | None = None
     summary_path: str | None = None
 
-    KNOWN = {"--run-cascade", "--var", "--vars", "--loop", "--summary"}
     i = 0
-    # Skip everything before --run-cascade (already validated by caller)
-    while i < len(argv) and argv[i] != "--run-cascade":
-        i += 1
     while i < len(argv):
         a = argv[i]
         if a == "--run-cascade":
@@ -5593,10 +5623,13 @@ def _parse_run_cascade_args(argv: list[str]) -> tuple[dict, str | None]:
             name, _, value = spec.partition("=")
             if not name:
                 return {}, "--var name cannot be empty"
-            if not _HEADLESS_VAR_NAME_RE.match(name):
+            # Values are keyed by the variable's flag (see CascadeVariableDialog.
+            # get_values), so accept any flag the definition dialog accepts.
+            if not (_HEADLESS_VAR_NAME_RE.match(name) or _CASCADE_VAR_FLAG_RE.match(name)):
                 return {}, (
                     f"--var name {name!r} is invalid "
-                    f"(must match [A-Za-z_][A-Za-z0-9_]*)"
+                    f"(must match [A-Za-z_][A-Za-z0-9_]* or be a cascade "
+                    f"variable flag such as --input)"
                 )
             variables[name] = value
             i += 2
@@ -5605,15 +5638,18 @@ def _parse_run_cascade_args(argv: list[str]) -> tuple[dict, str | None]:
                 return {}, "--vars requires a JSON file path"
             try:
                 loaded = json.loads(Path(argv[i + 1]).read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
                 return {}, f"--vars failed to read {argv[i + 1]!r}: {exc}"
             if not isinstance(loaded, dict):
                 return {}, f"--vars file must contain a JSON object (got {type(loaded).__name__})"
             for k, v in loaded.items():
-                if not isinstance(k, str) or not _HEADLESS_VAR_NAME_RE.match(k):
+                if not isinstance(k, str) or not (
+                    _HEADLESS_VAR_NAME_RE.match(k) or _CASCADE_VAR_FLAG_RE.match(k)
+                ):
                     return {}, (
                         f"--vars contains invalid name {k!r} "
-                        f"(must match [A-Za-z_][A-Za-z0-9_]*)"
+                        f"(must match [A-Za-z_][A-Za-z0-9_]* or be a cascade "
+                        f"variable flag such as --input)"
                     )
                 file_vars[k] = "" if v is None else str(v)
             i += 2
@@ -6971,11 +7007,14 @@ def _get_regex_pool():
             # top-level code. We neutralise this by temporarily hiding
             # __main__.__file__ so multiprocessing skips the main-module
             # re-import; the child still unpickles scaffold._regex_worker_entry
-            # via a normal `import scaffold` lookup.
+            # via a normal `import scaffold` lookup.  Skipped when scaffold.py
+            # itself is __main__: the task then pickles as
+            # __main__._regex_worker_entry, which only resolves if the child
+            # re-imports the main module (safe — it has a __main__ guard).
             main_mod = sys.modules.get("__main__")
             saved_file = None
             had_file = False
-            if main_mod is not None:
+            if main_mod is not None and _regex_worker_entry.__module__ != "__main__":
                 had_file = hasattr(main_mod, "__file__")
                 if had_file:
                     saved_file = main_mod.__file__
@@ -7131,7 +7170,9 @@ def extract_captures(
             if not pattern or not isinstance(pattern, str):
                 continue
             stream = stdout_tail if source == "stdout" else stderr_tail
-            group = entry.get("group", 1)
+            # Validation accepts an explicit null as "default group".
+            group = entry.get("group")
+            group = 1 if group is None else group
             success, value, err_type = _bounded_regex_search(pattern, stream, group)
             if not success:
                 errors.append((name, value, err_type))
@@ -7348,6 +7389,9 @@ class CascadeSidebar(QDockWidget):
         self._argv_warned_captures: set[str] = set()
         self._unset_warned_captures: set[str] = set()
         self._chain_paused = False
+        # Bumped on every run start and cleanup so step timers scheduled by
+        # a stopped run can't fire into the next one (see _chain_schedule).
+        self._chain_gen = 0
         # Cascade history tracking
         self._cascade_run_id: str | None = None
         self._cascade_steps: list[dict] = []
@@ -7707,7 +7751,8 @@ class CascadeSidebar(QDockWidget):
             abs_p = Path(p)
             for base in (_user_data_root(), _bundled_root()):
                 try:
-                    return str(abs_p.relative_to(base))
+                    # Forward slashes so Windows-saved cascades load on POSIX.
+                    return abs_p.relative_to(base).as_posix()
                 except ValueError:
                     continue
             return p
@@ -7751,6 +7796,9 @@ class CascadeSidebar(QDockWidget):
             self._main_window.statusBar().showMessage(
                 f"Cascade truncated to {CASCADE_MAX_SLOTS} steps (had {original_len})"
             )
+
+        if not all(isinstance(step, dict) for step in steps):
+            raise ValueError("Each cascade step must be an object")
 
         # Migrate renamed capture sources before validation
         _SOURCE_MIGRATION = {"stdout_full": "stdout_tail", "stderr_full": "stderr_tail"}
@@ -7802,10 +7850,17 @@ class CascadeSidebar(QDockWidget):
                 )
             tool_path = _resolve_step_path(tool_value) if tool_value else None
             preset_path = _resolve_step_path(preset_value) if preset_value else None
+            # Coerce to the spinbox's int range: a non-int would make
+            # setValue raise mid-rebuild, and an out-of-range value would
+            # differ from what the spinbox shows.
+            delay = step.get("delay", 0)
+            if not isinstance(delay, int) or isinstance(delay, bool):
+                delay = 0
+            delay = max(0, min(delay, 3600))
             new_slots.append({
                 "tool_path": tool_path,
                 "preset_path": preset_path,
-                "delay": step.get("delay", 0),
+                "delay": delay,
                 "captures": step.get("captures", []),
             })
 
@@ -8423,6 +8478,7 @@ class CascadeSidebar(QDockWidget):
         self._chain_current = -1
         self._chain_loop_count = 0
         self._chain_state = CHAIN_LOADING
+        self._chain_gen += 1
 
         # Record cascade run start
         self._cascade_run_loop_index = 0
@@ -8620,6 +8676,16 @@ class CascadeSidebar(QDockWidget):
         if new_text != original:
             form.extra_flags_edit.setPlainText(new_text)
 
+    def _chain_schedule(self, ms: int, step_fn) -> None:
+        """Run step_fn after ms unless this chain run has ended meanwhile."""
+        gen = self._chain_gen
+
+        def _fire():
+            if gen == self._chain_gen:
+                step_fn()
+
+        QTimer.singleShot(ms, self, _fire)
+
     def _chain_advance(self) -> None:
         """Load and run the next cascade step in the chain."""
         if self._chain_state == CHAIN_IDLE:
@@ -8660,7 +8726,7 @@ class CascadeSidebar(QDockWidget):
                 last_slot_index = self._chain_queue[-1]
                 delay_secs = self._slots[last_slot_index].get("delay", 0)
                 delay_ms = max(delay_secs * 1000, 300)
-                QTimer.singleShot(delay_ms, self._chain_advance)
+                self._chain_schedule(delay_ms, self._chain_advance)
                 return
             else:
                 runs = self._chain_loop_count + 1
@@ -8923,7 +8989,7 @@ class CascadeSidebar(QDockWidget):
                 return  # multi-token halt fired
 
         # Small delay to let the form render before executing
-        QTimer.singleShot(150, self._chain_execute_current)
+        self._chain_schedule(150, self._chain_execute_current)
 
     def _chain_execute_current(self) -> None:
         """Execute the currently loaded tool after form has rendered."""
@@ -9038,7 +9104,7 @@ class CascadeSidebar(QDockWidget):
                             self._main_window.statusBar().showMessage(
                                 f"Cascade: waiting {delay_secs}s before step {next_step}..."
                             )
-                        QTimer.singleShot(delay_ms, self._chain_advance)
+                        self._chain_schedule(delay_ms, self._chain_advance)
                 # broadly defensive — wraps the full Qt on-finished callback body (~90 lines across multiple helpers); narrowing would risk leaving the cascade in a non-idle state on an unanticipated error.
                 except Exception as _wrap_exc:
                     # Restore original handler so main window is usable
@@ -9072,13 +9138,7 @@ class CascadeSidebar(QDockWidget):
             # Record step start time for cascade history
             self._cascade_step_start = time.time()
 
-            # Start the command
-            self._main_window._on_run_stop()
-
-            # If process failed to even start (e.g. binary not found),
-            # _on_error fires and sets process=None without _on_finished.
-            # Detect this and clean up.
-            if self._main_window.process is None and self._chain_state == CHAIN_RUNNING:
+            def _chain_failed_to_start():
                 # Record the failed step in cascade history
                 if self._cascade_run_id is not None:
                     _fidx = self._chain_queue[self._chain_current]
@@ -9088,6 +9148,30 @@ class CascadeSidebar(QDockWidget):
                     ))
                 self._cascade_finish_status = "error_halted"
                 self._chain_cleanup("Cascade stopped: process failed to start")
+
+            # Start the command
+            self._main_window._on_run_stop()
+
+            # If process failed to even start (e.g. binary not found),
+            # _on_error fires and sets process=None without _on_finished.
+            # On Windows errorOccurred(FailedToStart) is emitted inside
+            # start(); on Linux/macOS it arrives on a later event-loop turn,
+            # so also watch the new process for it.
+            _proc = self._main_window.process
+            if _proc is None and self._chain_state == CHAIN_RUNNING:
+                _chain_failed_to_start()
+            elif isinstance(_proc, QProcess) and self._chain_state == CHAIN_RUNNING:
+                _gen, _step = self._chain_gen, self._chain_current
+
+                def _on_async_start_error(error):
+                    # Connected after MainWindow._on_error, so runs after it.
+                    if (error == QProcess.ProcessError.FailedToStart
+                            and _gen == self._chain_gen
+                            and _step == self._chain_current
+                            and self._chain_state == CHAIN_RUNNING):
+                        _chain_failed_to_start()
+
+                _proc.errorOccurred.connect(_on_async_start_error)
         # broadly defensive — wraps the entire cascade-step setup/launch path (closure definition, handler install, process start, failed-start cleanup); narrowing would risk stranding the chain on an unexpected error class.
         except Exception as e:
             try:
@@ -9112,7 +9196,7 @@ class CascadeSidebar(QDockWidget):
             self._chain_state = CHAIN_LOADING
             self.pause_chain_btn.setText("Pause")
             self._main_window.statusBar().showMessage("Cascade resumed")
-            QTimer.singleShot(100, self._chain_advance)
+            self._chain_schedule(100, self._chain_advance)
 
     def _build_chain_step_record(
         self,
@@ -9188,6 +9272,7 @@ class CascadeSidebar(QDockWidget):
         # None at the start of each new run at _on_run_chain (~line 6900).
 
         self._chain_state = CHAIN_IDLE
+        self._chain_gen += 1
         self._chain_paused = False
         self._chain_queue = []
         self._chain_current = -1
@@ -9257,8 +9342,8 @@ class CascadeSidebar(QDockWidget):
         _border = DARK_COLORS["border"] if _dark_mode else "#c0c0c0"
         self._chain_qss = f"QPushButton {{ border: 1px solid {_border}; {self._chain_btn_body} }}"
         self._refresh_button_labels()
-        self._clear_slot_highlights()
         self._style_loop_btn()
+        self._style_stop_on_error_btn()
         dim_color = DARK_COLORS["text_dim"] if _dark_mode else "#666666"
         for info in self._slot_widgets:
             info["delay_label"].setStyleSheet(f"font-size: 11px; color: {dim_color};")
@@ -10101,7 +10186,6 @@ class MainWindow(QMainWindow):
         # Find all matches (case-insensitive)
         doc = self.output.document()
         cursor = QTextCursor(doc)
-        flags = doc.FindFlag(0)  # no flags = forward, case-insensitive by default
         # QTextDocument.find is case-insensitive by default when no FindCaseSensitively flag is set
         while True:
             cursor = doc.find(query, cursor)
@@ -10258,7 +10342,14 @@ class MainWindow(QMainWindow):
         if path is None:
             return
         try:
-            _atomic_write_json(path, values)
+            # Owner-only umask so the temp file is never world-readable in the
+            # shared temp dir before the chmod below (the chmod still covers
+            # a pre-existing file, whose mode the umask cannot change).
+            old_umask = os.umask(0o077)
+            try:
+                _atomic_write_json(path, values)
+            finally:
+                os.umask(old_umask)
             try:
                 os.chmod(path, 0o600)
             except OSError:
@@ -10590,6 +10681,8 @@ class MainWindow(QMainWindow):
         self._copy_password_choice = None
         # Kill any running process
         self._elapsed_timer.stop()
+        self._timeout_timer.stop()
+        self._progress_label.setText("")
         self._teardown_process()
 
         # Preserve output content during chain execution
@@ -10844,8 +10937,16 @@ class MainWindow(QMainWindow):
 
     def _on_back(self) -> None:
         """Return to the tool picker, stopping any running process first."""
-        # Kill any running process before going back
+        # Kill any running process before going back. _teardown_process does
+        # no UI reset and the picker's Back reuses this form, so reset here.
         self._teardown_process()
+        self._elapsed_timer.stop()
+        self._timeout_timer.stop()
+        self._progress_label.setText("")
+        if hasattr(self, "run_btn"):
+            self.run_btn.setText("Run")
+            self._style_run_btn()
+            self._update_preview()
         self._show_picker()
 
     def _on_custom_paths(self) -> None:
@@ -11213,13 +11314,11 @@ class MainWindow(QMainWindow):
     def _update_preview(self) -> None:
         """Rebuild the command preview and toggle Run button availability."""
         missing = self.form.validate_required()
-        cmd, display = self.form.build_command()
+        cmd, _ = self.form.build_command()
         extra_count = len(self.form.get_extra_flags())
         if self.form.is_elevation_checked():
             elev_cmd, _ = get_elevation_command(cmd)
-            extra_count = len(self.form.get_extra_flags())
             cmd = elev_cmd
-            display = _format_display(elev_cmd)
         sub = self.form.sub_combo.currentData() if self.form.sub_combo else None
         masked_cmd = self.form._mask_passwords_for_display(cmd)
         html = _colored_preview_html(masked_cmd, extra_count, subcommand=sub)
@@ -11400,13 +11499,6 @@ class MainWindow(QMainWindow):
         """Escalate to SIGKILL if the process did not exit after SIGTERM."""
         if not self.process or self.process.state() == QProcess.ProcessState.NotRunning:
             return
-        if not self._elevated_run and sys.platform != "win32":
-            pid = self.process.processId()
-            if pid > 0:
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError, OSError):
-                    pass
         self.process.kill()
 
     def _teardown_process(self) -> None:
@@ -11488,9 +11580,16 @@ class MainWindow(QMainWindow):
             )
             return
 
-        cmd, display = self.form.build_command()
+        cmd, _ = self.form.build_command()
         if not cmd:
             return
+
+        # QProcess looks a bare program name up on the parent's PATH, not on
+        # the child env set below, so resolve custom-PATH binaries here.
+        if _get_custom_paths():
+            resolved = shutil.which(cmd[0], path=_extended_path())
+            if resolved:
+                cmd = [resolved] + cmd[1:]
 
         # Handle elevation
         self._elevated_run = False
@@ -11500,7 +11599,6 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Elevation Not Available", error)
                 return
             cmd = elev_cmd
-            display = _format_display(cmd)
             self._elevated_run = True
 
         program = cmd[0]
@@ -11618,7 +11716,7 @@ class MainWindow(QMainWindow):
         if self._error_reported:
             # _on_error already handled UI and recorded history; just
             # clear process and return — no double-record needed.
-            self.process = None
+            self._release_process()
             return
         elapsed_str = ""
         if self._run_start_time is not None:
@@ -11655,7 +11753,19 @@ class MainWindow(QMainWindow):
         self.run_btn.setText("Run")
         self._style_run_btn()
         self._update_preview()
+        self._release_process()
+
+    def _release_process(self) -> None:
+        """Drop the finished QProcess and schedule its deletion.
+
+        Without deleteLater every run would leave a dead QProcess parented
+        to the window. Deletion is deferred, so this is safe from inside
+        the process's own finished/errorOccurred handlers.
+        """
+        proc = self.process
         self.process = None
+        if proc is not None:
+            proc.deleteLater()
 
     def _on_error(self, error) -> None:
         """Handle QProcess errors, printing a descriptive message to the output panel."""
@@ -11677,6 +11787,8 @@ class MainWindow(QMainWindow):
             QProcess.ProcessError.ReadError: "Read error communicating with process.",
         }
         msg = error_messages.get(error, f"Unknown process error ({error}).")
+        # Flush first: on a crash Qt has already buffered the last output.
+        self._flush_output()
         self._append_output(f"\n--- {msg} ---\n", COLOR_ERR)
         self.statusBar().showMessage(msg)
         # Record history for the errored run
@@ -11695,11 +11807,10 @@ class MainWindow(QMainWindow):
         # Clean up timers and process — needed for FailedToStart where
         # _on_finished() is never called.  Harmless double-set for Crashed.
         self._timeout_timer.stop()
-        self._flush_output()
         self._elapsed_timer.stop()
         self._force_kill_timer.stop()
         self._run_start_time = None
-        self.process = None
+        self._release_process()
 
     # ------------------------------------------------------------------
     # Command history
@@ -11873,7 +11984,10 @@ class MainWindow(QMainWindow):
             tool_path = step.get("tool_path")
             if not tool_path or not Path(tool_path).exists():
                 return  # dialog already warned
+            prev_data = self.data
             self._load_tool_path(tool_path)
+            if self.data is prev_data:
+                return  # load failed or was cancelled; don't apply to the old form
             preset_path = step.get("preset_path")
             if preset_path and Path(preset_path).exists():
                 try:
