@@ -6,7 +6,7 @@ Scaffold: Your CLI Tools, but with Buttons
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)
 ![Single File](https://img.shields.io/badge/architecture-single%20file-blue)
 ![Lines of Code](https://img.shields.io/badge/lines-12%2C200%2B-informational)
-![Tests](https://img.shields.io/badge/tests-3%2C943%20assertions-brightgreen)
+![Tests](https://img.shields.io/badge/tests-3%2C966%20assertions-brightgreen)
 ![Test Suites](https://img.shields.io/badge/test%20suites-6-brightgreen)
 ![Bundled Tools](https://img.shields.io/badge/bundled%20tools-28%20schemas-orange)
 ![No Shell](https://img.shields.io/badge/shell%3DTrue-never-critical)
@@ -466,7 +466,7 @@ I built Scaffold the way a real team would build software, just with an AI writi
 
 1. **Architecture first.** It started with a design document for the widget type system, the schema format and the command assembly pipeline, before any code was written.
 2. **Staged deliverables.** It was built in phases: core engine, widget rendering, command execution, presets, subcommands, dark mode, elevated execution, UI polish, and the schema generation prompt.
-3. **Tests alongside features.** Tests were planned with each stage instead of added at the end. The suites (3,943 assertions across 6 suites) were written to check each feature as it was delivered.
+3. **Tests alongside features.** Tests were planned with each stage instead of added at the end. The suites (3,966 assertions across 6 suites) were written to check each feature as it was delivered.
 4. **Code review cycles.** Once the core was stable, the code went through several review passes: cleanup, an error-handling audit, performance profiling and linting.
 5. **A lot of iteration.** Most features took several rounds of build, test and fix. The dark mode scrollbar alone went through QSS, then QProxyStyle, and finally native `setColorScheme` before it worked right.
 6. **Manual QA on every release.** I tested every version by hand on real tools before tagging it.
