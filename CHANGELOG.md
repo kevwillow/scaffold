@@ -14,7 +14,7 @@ Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixe
   - lint: Ruff with the Python 3.10 grammar (catches syntax that only newer Pythons accept), pyflakes on the app, Bandit at medium severity and up
   - repo consistency (`.github/scripts/check_repo.py`): version strings agree, every `.py` has the AGPL header, CI pins match `pyproject.toml`, every action is SHA-pinned, and `shell=True`/`eval`/`exec`/`os.system` never appear in the app
   - bundled data (`.github/scripts/check_data.py`): every JSON file parses, every schema validates, valid/invalid fixtures behave, every default preset validates against its tool, and every example cascade imports through the real sidebar code with resolvable paths
-  - packaging: build the sdist and wheel, `twine check`, confirm every bundled file is in the wheel, then install it into a clean venv on each OS and run it in installed mode from outside the repo
+  - packaging: build the sdist and wheel once, `twine check`, confirm every bundled file is in both, then install the wheel into a clean venv on each OS and run it in installed mode from outside the repo (it also reports which user-data folder the `scaffold` command really uses on that OS)
   - `pip-audit` on every pinned dependency set; actionlint and zizmor on the workflows
   - CodeQL (`security-extended`) for the Python code and for the workflow files; GitHub dependency review on PRs; OpenSSF Scorecard on `main`
   - Dependabot for actions and the CI requirements, with a 7-day cooldown
@@ -47,6 +47,7 @@ Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixe
 - View > Theme > System after choosing Light/Dark follows the OS again (Qt 6.8+ color-scheme override is cleared before reading).
 - Headless runs no longer overwrite or delete the GUI's crash-recovery files, or its saved window geometry.
 - CMD "Copy as" doubles trailing backslashes before the closing quote; subcommand tooltips and decorated field labels are HTML-escaped; cascade export writes forward slashes so Windows-saved cascades load on POSIX; the per-entry history size cap now applies to cascade runs; finished QProcess objects are released; the crash-recovery file is created under an owner-only umask; the stop-on-error button restyles on theme change; a capture with `"group": null` uses the default group; a non-bytes `window/geometry` setting no longer prevents startup.
+- An argument with an empty `"flag": ""` is now a validation error that points to `"positional": true`. It used to load and then put an empty-string argument on the command line (`python3 '' script.py` made Python look for `__main__` in the current folder).
 - `_cascade_path_is_safe` rejects backslash traversal (`..\..\x`) on POSIX too, so cascade files are judged the same on every platform.
 
 ### Changed (visible behavior)
@@ -68,8 +69,10 @@ Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixe
 
 ### Tests
 
-- Sections §217 (already-elevated runs) and §218 (placeholder preset hash) added; both fail on v2.13.1.
+- Sections §217 (already-elevated runs), §218 (placeholder preset hash) and §219 (empty flags) added; all fail on v2.13.1.
+- §96's SIGTERM-resistant helper never actually ran: its schema used an empty flag, so Python got an empty script path and exited at once, and the checks passed on timing alone (macOS CI exposed it). The helper now uses a positional argument, and 96f waits until the child has installed its signal handler before clicking Stop. §154's helper schema got the same fix.
 - The "Stop a Running Process" test (§3c) used the Windows `ping` schema, so it failed on Linux and macOS. It now uses a short Python sleeper on every OS, and a process that fails to start is a failure instead of a silent pass.
+- Tests that run the bundled (Windows) ping schema now get a ping test double on Linux and macOS (`tests/fake_ping/ping`, first on PATH there). Real ping on those systems reads `-n` as "numeric output" and never exits, which hung the smoke and functional run tests on GitHub's runners. Windows still uses real ping.
 - §128 shows its window before closing the dock, as a real user would; PySide6 6.5 doesn't emit `visibilityChanged` for a window that was never shown.
 - `test_manual_verification.py` pins elevation detection to "not elevated" so its checkbox checks run the same on Administrator CI runners; §180h expects no wrapper when the runner is already elevated.
 

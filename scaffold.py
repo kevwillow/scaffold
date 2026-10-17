@@ -521,6 +521,13 @@ def _validate_args(args: list, scope: str, errors: list) -> None:
         if "flag" in arg:
             if not isinstance(arg["flag"], str):
                 errors.append(f"{prefix}: \"flag\" must be a string, got {type(arg['flag']).__name__}")
+            elif not arg["flag"]:
+                # An empty flag would put an empty-string argument on the
+                # command line, which most programs reject or misread.
+                errors.append(
+                    f"{prefix}: \"flag\" cannot be empty (for a bare value, use a "
+                    f"placeholder name like \"TARGET\" and set \"positional\": true)"
+                )
             else:
                 if arg["flag"] != arg["flag"].strip():
                     errors.append(f"{prefix}: flag \"{arg['flag']}\" has leading/trailing whitespace")

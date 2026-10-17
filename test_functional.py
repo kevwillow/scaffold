@@ -16,7 +16,7 @@
 
 """ test_functional.py — end-to-end behavioral test suite for Scaffold.
 
-Runs as a single linear script (sections 1 to 218), tracking pass/fail counts.
+Runs as a single linear script (sections 1 to 219), tracking pass/fail counts.
 Each section spins up a MainWindow, exercises a feature area, then cleans up.
 
 Coverage:
@@ -67,6 +67,13 @@ if sys.stdout.encoding and sys.stdout.encoding.lower().replace("-", "") != "utf8
 
 # Ensure scaffold module is importable
 sys.path.insert(0, str(Path(__file__).parent))
+
+# The bundled ping.json is the Windows ping schema ("-n N" = echo count).
+# On Linux/macOS, put a test double with those semantics first on PATH so
+# tests that run "ping -n 1 127.0.0.1" get a short, network-free process.
+if sys.platform != "win32":
+    os.environ["PATH"] = (str(Path(__file__).parent / "tests" / "fake_ping")
+                          + os.pathsep + os.environ.get("PATH", ""))
 
 from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QPlainTextEdit, QTextEdit, QListWidget, QLabel, QMenu, QMessageBox, QHeaderView, QSizePolicy, QDockWidget, QTreeWidget, QPushButton, QDialog, QScrollArea, QVBoxLayout, QTableWidget
 from PySide6.QtCore import Qt, QSettings, QProcess, QTimer, QPoint
@@ -11063,7 +11070,8 @@ _s96_schema = {
     "binary": sys.executable,
     "description": "SIGTERM-resistant helper for test 96",
     "arguments": [
-        {"name": "Script", "flag": "", "type": "string", "default": _s96_script_path},
+        {"name": "Script", "flag": "SCRIPT", "type": "string", "positional": True,
+         "default": _s96_script_path},
     ],
 }
 _s96_schema_path = os.path.join(_s96_script_dir, "test96_tool.json")
@@ -11199,6 +11207,18 @@ for _s96_i in range(20):
     time.sleep(0.05)
 check(_s96_win.process is not None and _s96_win.process.state() == QProcess.ProcessState.Running,
       "96f-pre: process running before Stop click")
+# "Running" only means the child was launched. It prints "started" after it
+# installs its SIGTERM-ignoring handler; a SIGTERM sent before that (likely
+# on macOS, where the framework Python starts slowly) kills it outright and
+# the escalation timer is never needed.
+for _s96_i in range(100):
+    app.processEvents()
+    _s96_win._flush_output()
+    if "started" in _s96_win.output.toPlainText():
+        break
+    time.sleep(0.05)
+check("started" in _s96_win.output.toPlainText(),
+      "96f-pre: child installed its SIGTERM handler before Stop click")
 _s96_win._on_run_stop()  # This is the user-clicked Stop path
 app.processEvents()
 check(_s96_win._force_kill_timer.isActive(),
@@ -18702,7 +18722,7 @@ _s154_tool = {
     "tool": "tool_154",
     "binary": "echo",
     "description": "CH-2 test",
-    "arguments": [{"name": "Msg", "flag": "", "type": "string"}],
+    "arguments": [{"name": "Msg", "flag": "MSG", "type": "string", "positional": True}],
 }
 _s154_path = os.path.join(_s154_tmpdir, "tool_154.json")
 Path(_s154_path).write_text(json.dumps(_s154_tool))
@@ -31294,6 +31314,44 @@ try:
 finally:
     QSettings("Scaffold", "Scaffold").remove("session/last_tool")
     shutil.rmtree(_s218_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 219
+# =====================================================================
+print("\n--- Section 219: Empty flag is rejected by schema validation ---")
+
+# An argument with "flag": "" used to validate, then put an empty-string
+# argument on the command line ("python3 '' script.py" made Python look
+# for __main__ in the current directory). The spec asks for a placeholder
+# name with "positional": true instead.
+
+_s219_base = {"_format": "scaffold_schema", "tool": "t219", "binary": "t219", "description": "d"}
+
+_s219_errs = scaffold.validate_tool(dict(_s219_base, arguments=[{"name": "A", "flag": "", "type": "string"}]))
+check(any("cannot be empty" in e for e in _s219_errs),
+      f"219a: empty top-level flag is a validation error (got {_s219_errs!r})")
+check(any("positional" in e for e in _s219_errs),
+      "219a: the error tells the author to use a positional placeholder")
+
+_s219_errs = scaffold.validate_tool(dict(_s219_base, arguments=[], subcommands=[
+    {"name": "run", "arguments": [{"name": "B", "flag": "", "type": "boolean"}]}]))
+check(any("cannot be empty" in e for e in _s219_errs),
+      f"219b: empty subcommand flag is a validation error (got {_s219_errs!r})")
+
+_s219_errs = scaffold.validate_tool(dict(_s219_base, arguments=[
+    {"name": "Target", "flag": "TARGET", "type": "string", "positional": True}]))
+check(_s219_errs == [], f"219c: positional placeholder flag still validates (got {_s219_errs!r})")
+
+# A positional value is passed as exactly one argv token, with no empty token.
+_s219_form = scaffold.ToolForm(scaffold.normalize_tool(dict(_s219_base, arguments=[
+    {"name": "Target", "flag": "TARGET", "type": "string", "positional": True}])))
+_s219_form._set_field_value((_s219_form.GLOBAL, "TARGET"), "x.py")
+_s219_cmd, _ = _s219_form.build_command()
+check(_s219_cmd == ["t219", "x.py"] and "" not in _s219_cmd,
+      f"219d: positional value is one argv token with no empty token (got {_s219_cmd!r})")
+_s219_form.deleteLater()
+app.processEvents()
 
 # =====================================================================
 # Final cleanup

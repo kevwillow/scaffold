@@ -35,6 +35,13 @@ if sys.stdout.encoding and sys.stdout.encoding.lower().replace("-", "") != "utf8
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 sys.path.insert(0, str(Path(__file__).parent))
 
+# The bundled ping.json is the Windows ping schema ("-n N" = echo count).
+# On Linux/macOS, put a test double with those semantics first on PATH so
+# tests that run "ping -n 1 127.0.0.1" get a short, network-free process.
+if sys.platform != "win32":
+    os.environ["PATH"] = (str(Path(__file__).parent / "tests" / "fake_ping")
+                          + os.pathsep + os.environ.get("PATH", ""))
+
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QSpinBox, QDoubleSpinBox,
     QLineEdit, QPlainTextEdit, QListWidget, QLabel,

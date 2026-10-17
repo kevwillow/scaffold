@@ -92,16 +92,22 @@ if len(sys.argv) > 1:
                    XDG_CONFIG_HOME=str(home / "config"))
         subprocess.run([console, "--run-cascade", str(cascade)], env=env, cwd=tmp,
                        capture_output=True, text=True, timeout=120)
+        # macOS and Windows resolve these folders from the account itself and
+        # ignore HOME, so look in the real locations too.
         roots = [home]
-        if os.environ.get("APPDATA"):
-            roots.append(Path(os.environ["APPDATA"]))  # Windows ignores HOME for this
+        if sys.platform == "darwin":
+            import pwd
+            roots.append(Path(pwd.getpwuid(os.getuid()).pw_dir) / "Library" / "Application Support")
+        for var in ("APPDATA", "LOCALAPPDATA"):
+            if os.environ.get(var):
+                roots.append(Path(os.environ[var]))
         found = []
         for root in roots:
             found += glob.glob(str(root / "**" / "Scaffold" / "tools"), recursive=True)
         if not found:
             fail("the scaffold command did not create a Scaffold/tools data folder")
         for f in found:
-            shown = str(Path(f).parent).replace(str(home), "~")
+            shown = str(Path(f).parent).replace(str(home), "~(temp)")
             print(f"::notice title=User data folder ({sys.platform})::scaffold command stores data in {shown}")
 
 print(f"\n{len(errors)} problem(s)")

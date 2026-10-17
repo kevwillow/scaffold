@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+# Scaffold - CLI-to-GUI Translation Layer
+# Copyright (C) 2026 Kev Wilson
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+"""Test double for Windows ping, used by the test suites on Linux and macOS.
+
+The bundled ping.json describes Windows ping, where `-n N` is the echo
+count. Several tests run that schema expecting `ping -n 1 127.0.0.1` to
+print a reply and exit. Real ping on Linux/macOS reads -n as "numeric
+output" and keeps pinging, so the suites put this folder first on PATH
+there. It needs no network and behaves the same on every machine.
+"""
+
+import sys
+import time
+
+args = sys.argv[1:]
+count = 4
+if "-n" in args:
+    try:
+        count = int(args[args.index("-n") + 1])
+    except (IndexError, ValueError):
+        pass
+target = args[-1] if args else "localhost"
+
+print(f"Pinging {target} with 32 bytes of data:", flush=True)
+for i in range(count):
+    print(f"Reply from {target}: bytes=32 time<1ms TTL=128", flush=True)
+    if i < count - 1:
+        time.sleep(1)
+print(f"Ping statistics for {target}: Sent = {count}, Received = {count}, Lost = 0", flush=True)
