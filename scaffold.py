@@ -1516,7 +1516,7 @@ class ToolForm(QWidget):
                 self.sub_combo.addItem(label, sub["name"])
                 if full_desc:
                     idx = self.sub_combo.count() - 1
-                    self.sub_combo.setItemData(idx, f"<p>{full_desc}</p>", Qt.ItemDataRole.ToolTipRole)
+                    self.sub_combo.setItemData(idx, f"<p>{html.escape(full_desc)}</p>", Qt.ItemDataRole.ToolTipRole)
             self.sub_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             self.sub_combo.setMinimumWidth(200)
             self.sub_combo.setMaximumWidth(600)
@@ -2072,9 +2072,9 @@ class ToolForm(QWidget):
                 field = self.fields[fk]
                 w = field["widget"]
                 if isinstance(w, QCheckBox):
-                    w.blockSignals(True)
+                    # Signals stay live so the sibling's depends_on children
+                    # are re-evaluated; the unchecked state returns early above.
                     w.setChecked(False)
-                    w.blockSignals(False)
         self.command_changed.emit()
 
     # ------------------------------------------------------------------
@@ -2571,6 +2571,7 @@ class ToolForm(QWidget):
         """Return a copy of cmd with password-type values replaced by ********."""
         # Collect password flags and their separators for active scopes
         pw_flags = {}
+        pw_positional = set()
         sub = self.get_current_subcommand()
         scopes = {self.GLOBAL}
         if sub:
@@ -2581,11 +2582,16 @@ class ToolForm(QWidget):
                 continue
             if field["arg"]["type"] != "password":
                 continue
-            if self.get_field_value(key) is None:
+            value = self.get_field_value(key)
+            if value is None:
+                continue
+            if field["arg"]["positional"]:
+                # No flag token precedes a positional value, so match the value
+                pw_positional.add(str(value))
                 continue
             pw_flags[flag] = field["arg"].get("separator", "space")
 
-        if not pw_flags:
+        if not pw_flags and not pw_positional:
             return list(cmd)
 
         # Build set of ALL flags in the schema (for prefix-collision checks)
@@ -2628,7 +2634,7 @@ class ToolForm(QWidget):
                         matched = True
                         break
             if not matched:
-                masked.append(token)
+                masked.append("********" if token in pw_positional else token)
             i += 1
         return masked
 
@@ -2686,7 +2692,7 @@ class ToolForm(QWidget):
 
             # Rebuild label text only if it has any theme-sensitive decoration
             if arg["required"] or arg.get("dangerous") or arg.get("deprecated"):
-                label_text = arg["name"]
+                label_text = html.escape(arg["name"])
                 if arg["required"]:
                     label_text = f"<b>{label_text} <span style='color:{req_color};'>*</span></b>"
                 if arg.get("dangerous"):
@@ -2776,6 +2782,11 @@ def _format_bash(cmd: list[str]) -> str:
 
 
 _SAFE_TOKEN_RE = re.compile(r'^[A-Za-z0-9_./:=+,@%-]+$')
+# PowerShell needs its own whitelist: in argument mode ',' builds an array
+# (split into separate argv entries) and a leading '@' splats a variable.
+_PS_SAFE_TOKEN_RE = re.compile(r'^[A-Za-z0-9_./:=+%-]+$')
+# PowerShell treats the typographic single quotes as ' too, so all must be doubled
+_PS_SINGLE_QUOTES_RE = re.compile("(['\u2018\u2019\u201a\u201b])")
 
 
 def _format_powershell(cmd: list[str]) -> str:
@@ -2791,14 +2802,14 @@ def _format_powershell(cmd: list[str]) -> str:
     for i, token in enumerate(cmd):
         # Replace newlines — PS single-quoted strings cannot span lines
         token = token.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
-        if _SAFE_TOKEN_RE.match(token):
+        if _PS_SAFE_TOKEN_RE.match(token):
             parts.append(token)
         elif i == 0:
             # Binary needs & prefix and single-quoting
-            escaped = token.replace("'", "''")
+            escaped = _PS_SINGLE_QUOTES_RE.sub(r"\1\1", token)
             parts.append(f"& '{escaped}'")
         else:
-            escaped = token.replace("'", "''")
+            escaped = _PS_SINGLE_QUOTES_RE.sub(r"\1\1", token)
             parts.append(f"'{escaped}'")
     return " ".join(parts)
 
@@ -2820,6 +2831,11 @@ def _format_cmd(cmd: list[str]) -> str:
             parts.append(token)
         else:
             escaped = token.replace('"', '""')
+            # Programs parsing argv with MSVCRT rules read \" as a literal
+            # quote, so double any trailing backslashes before the closing quote
+            m = re.search(r'\\+$', escaped)
+            if m:
+                escaped += m.group(0)
             parts.append(f'"{escaped}"')
     return " ".join(parts)
 
