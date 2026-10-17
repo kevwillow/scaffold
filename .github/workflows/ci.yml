@@ -1,0 +1,284 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly, so new Python/PySide6 releases and newly published CVEs are
+    # caught even when nobody pushes.
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  QT_QPA_PLATFORM: offscreen
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: utf-8
+  PYTHONFAULTHANDLER: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  lint:
+    name: Lint and static checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install pinned tools
+        run: python -m pip install --require-hashes -r .github/requirements/tools.txt
+      - name: Repo consistency (versions, headers, pins, forbidden calls)
+        run: python .github/scripts/check_repo.py
+      - name: Ruff, syntax and undefined names (Python 3.10 grammar)
+        run: ruff check --output-format=github --target-version=py310 --select=E9,F63,F7,F82 .
+      - name: Ruff, pyflakes on the app and CI scripts
+        run: ruff check --output-format=github --target-version=py310 --select=F scaffold.py .github/scripts
+      - name: Bandit, medium severity and up
+        # B610/B611 are Django rules; Scaffold doesn't use Django and B610
+        # misfires on a local callback named "extra".
+        run: bandit -r scaffold.py scaffold_data .github/scripts -ll -ii --skip B610,B611
+
+  workflows:
+    name: Workflow security (actionlint, zizmor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install pinned tools
+        run: python -m pip install --require-hashes -r .github/requirements/tools.txt
+      - name: actionlint
+        run: actionlint -color
+      - name: zizmor
+        # The token lets zizmor run its online audits (impostor commits,
+        # known-vulnerable action versions). It only needs read access.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: zizmor --format=github .
+
+  audit:
+    name: Dependency vulnerabilities (pip-audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install pinned tools
+        run: python -m pip install --require-hashes -r .github/requirements/tools.txt
+      - name: Audit every pinned dependency set
+        run: |
+          for f in .github/requirements/test-py312.txt .github/requirements/test-py310.txt \
+                   .github/requirements/min/test-min.txt .github/requirements/tools.txt; do
+            echo "== $f"
+            pip-audit --progress-spinner=off --disable-pip --require-hashes -r "$f"
+          done
+
+  data:
+    name: Bundled schemas, presets and cascades
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install Qt system libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
+      - name: Install pinned PySide6
+        run: python -m pip install --require-hashes -r .github/requirements/test-py312.txt
+      - name: Check every bundled data file
+        run: python .github/scripts/check_data.py
+      - name: Validate every bundled schema through the CLI
+        run: |
+          set -euo pipefail
+          git ls-files 'scaffold_data/tools/*.json' 'scaffold_data/tools/**/*.json' | sort -u | while read -r f; do
+            python scaffold.py --validate "$f"
+          done
+
+  test:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install Qt system libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3 iputils-ping
+      - name: Install pinned PySide6
+        shell: bash
+        env:
+          # Python 3.10/3.11 stay below PySide6 6.12 (see pyproject.toml).
+          REQS: ${{ (matrix.python == '3.10' || matrix.python == '3.11') && '.github/requirements/test-py310.txt' || '.github/requirements/test-py312.txt' }}
+        run: python -m pip install --require-hashes -r "$REQS"
+      - name: Smoke tests
+        run: python test_smoke.py
+      - name: Security tests
+        run: python test_security.py
+      - name: Preset validation tests
+        run: python test_preset_validation.py
+      - name: Examples tests
+        run: python test_examples.py
+      - name: Manual verification tests
+        run: python test_manual_verification.py
+      - name: Functional tests
+        run: python test_functional.py
+
+  min-deps:
+    name: Oldest supported (${{ matrix.os }}, Python 3.10, PySide6 6.5)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+      - name: Install Qt system libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3 iputils-ping
+      - name: Install the oldest PySide6 pyproject.toml allows
+        run: python -m pip install --require-hashes -r .github/requirements/min/test-min.txt
+      - name: Smoke tests
+        run: python test_smoke.py
+      - name: Security tests
+        run: python test_security.py
+      - name: Preset validation tests
+        run: python test_preset_validation.py
+      - name: Examples tests
+        run: python test_examples.py
+      - name: Manual verification tests
+        run: python test_manual_verification.py
+      - name: Functional tests
+        run: python test_functional.py
+
+  package:
+    name: Build and install the package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install Qt system libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
+      - name: Install pinned build tools
+        run: python -m pip install --require-hashes -r .github/requirements/tools.txt
+      - name: Build sdist and wheel
+        run: python -m build
+      - name: Check package metadata
+        run: twine check --strict dist/*
+      - name: Check the wheel ships every bundled file
+        run: python .github/scripts/check_wheel.py dist
+      - name: Install the wheel into a clean venv and run it from outside the repo
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/venv"
+          if [ "$RUNNER_OS" = "Windows" ]; then BIN="$RUNNER_TEMP/venv/Scripts"; else BIN="$RUNNER_TEMP/venv/bin"; fi
+          "$BIN/python" -m pip install --require-hashes -r .github/requirements/test-py312.txt
+          "$BIN/python" -m pip install --no-deps dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$BIN/python" "$GITHUB_WORKSPACE/.github/scripts/check_installed.py" "$BIN/scaffold"
+          "$BIN/scaffold" --version
+          "$BIN/scaffold" --prompt > /dev/null
+          "$BIN/scaffold" --preset-prompt > /dev/null
+      - name: Install the sdist into a clean venv
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/sdist-venv"
+          "$RUNNER_TEMP/sdist-venv/bin/python" -m pip install --require-hashes -r .github/requirements/test-py312.txt
+          "$RUNNER_TEMP/sdist-venv/bin/python" -m pip install --no-deps dist/*.tar.gz
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/sdist-venv/bin/python" "$GITHUB_WORKSPACE/.github/scripts/check_installed.py"
+      - name: Keep the built distributions
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  pyside-canary:
+    name: Canary, newest PySide6 on Python 3.10 (informational)
+    # Never fails the build. It reports whether the newest PySide6 still has
+    # the refcount bug that the <6.12 cap for Python 3.10/3.11 works around.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+      - name: Install Qt system libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3
+      - name: Install the newest PySide6 (deliberately unpinned)
+        run: python -m pip install --upgrade PySide6
+      - name: Check signal refcounting
+        run: python .github/scripts/pyside_refcount_canary.py
+
+  all-green:
+    name: All checks passed
+    # One stable name to mark as required in branch protection.
+    if: always()
+    needs: [lint, workflows, audit, data, test, min-deps, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail if any required job failed or was skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "job results: $RESULTS"
+          for r in $RESULTS; do
+            if [ "$r" != "success" ]; then exit 1; fi
+          done

@@ -16,7 +16,7 @@
 
 """ test_functional.py — end-to-end behavioral test suite for Scaffold.
 
-Runs as a single linear script (sections 1 to 216), tracking pass/fail counts.
+Runs as a single linear script (sections 1 to 218), tracking pass/fail counts.
 Each section spins up a MainWindow, exercises a feature area, then cleans up.
 
 Coverage:
@@ -554,24 +554,28 @@ check(window.output.toPlainText() == "", "output panel cleared")
 print("\n=== SECTION 3c: Stop a Running Process ===")
 # =====================================================================
 
-# Run ping with enough count to keep it alive for the stop test (~4s on
-# Windows with -n 5).  Must be long enough that the process is definitely
-# still running when _on_run_stop() is called (~200ms later), but short
-# enough to exit naturally within the waitForFinished(5000) window — on
-# Windows, terminate() sends WM_CLOSE which console apps ignore, and the
-# force-kill timer may not fire during the blocking wait.
-for key, field in form.fields.items():
-    if field["arg"]["flag"] in ("-c", "-n"):
-        w = field["widget"]
-        if isinstance(w, QSpinBox):
-            w.setValue(5)
-        break
-
-# Set target
-for key, field in form.fields.items():
-    if field["arg"]["positional"] and field["arg"]["required"]:
-        form._set_field_value(key, "127.0.0.1")
-        break
+# Use a short-lived Python sleeper so the test behaves the same on every OS
+# (the bundled ping.json is the Windows ping schema, so its -n count flag
+# means something else on Linux/macOS and ping exited before the stop).
+# ~3s is long enough that the process is definitely still running when
+# _on_run_stop() is called (~200ms later), but short enough to exit
+# naturally within the waitForFinished(5000) window — on Windows,
+# terminate() sends WM_CLOSE which console apps ignore, and the force-kill
+# timer may not fire during the blocking wait.
+_s3c_dir = tempfile.mkdtemp(prefix="scaffold_test3c_")
+_s3c_path = os.path.join(_s3c_dir, "sleeper.json")
+Path(_s3c_path).write_text(json.dumps({
+    "_format": "scaffold_schema",
+    "tool": "sleeper_3c",
+    "binary": sys.executable,
+    "description": "Short-lived process for the stop test",
+    "arguments": [{"name": "Code", "flag": "-c", "type": "string"}],
+}), encoding="utf-8")
+window._load_tool_path(_s3c_path)
+form = window.form
+app.processEvents()
+form._set_field_value((form.GLOBAL, "-c"),
+                      "import time; print('alive', flush=True); time.sleep(3)")
 
 form.command_changed.emit()
 app.processEvents()
@@ -597,7 +601,13 @@ if window.process and window.process.state() != QProcess.ProcessState.NotRunning
           "output contains 'stopped' message after kill")
     check(window.run_btn.text() == "Run", "run button restored after stop")
 else:
-    check(True, "process stop test (process did not start, skipped)")
+    check(False, "process stop test: sleeper process did not start")
+
+# Put the ping form back for the sections that follow
+window._load_tool_path(ping_path)
+form = window.form
+app.processEvents()
+shutil.rmtree(_s3c_dir, ignore_errors=True)
 
 
 # =====================================================================
@@ -14667,6 +14677,9 @@ _s128_tmpdir = tempfile.mkdtemp(prefix="scaffold_test128_")
 _s128_p = Path(_s128_tmpdir) / "cascade_minw.json"
 _s128_p.write_text(json.dumps(_s128_tool), encoding="utf-8")
 _s128_win = scaffold.MainWindow(tool_path=str(_s128_p))
+# Shown, as it is when a user clicks the dock's X. Older Qt (6.5) does not
+# emit QDockWidget.visibilityChanged for a window that was never shown.
+_s128_win.show()
 _s128_win.cascade_dock.setVisible(False)
 app.processEvents()
 
@@ -23383,10 +23396,9 @@ scaffold.extract_captures = lambda *a, **kw: ({"x": "READY"}, [])
 _s180_argvs = []
 # Captured at step-2 intercept; one entry means step 2 was reached.
 # is_elevation_checked() returns the checkbox state when the checkbox
-# exists, else short-circuits via _check_already_elevated() — both modes
-# yield True after preset 2 applies, so the assertion is robust against
-# elevated-shell test runs even though the meaningful signal comes from
-# the checkbox-present case.
+# exists. In an already-elevated run (root, or an Administrator CI runner)
+# there is no checkbox and commands run without a pkexec/gsudo wrapper, so
+# it returns False there.
 _s180_elev_capture = []
 _s180_orig_stop = _s180_win._on_run_stop
 
@@ -23447,9 +23459,11 @@ if len(_s180_argvs) >= 2:
     check("A_VALUE" not in _s180_step2,
           f"180g: step-2 argv does NOT contain 'A_VALUE' (step-1 flag "
           f"value did not leak via overlay) (got {_s180_step2!r})")
-    check(len(_s180_elev_capture) == 1 and _s180_elev_capture[0] is True,
+    # Already elevated: no checkbox, preset's _elevated is moot, no wrapper.
+    _s180_expect_elev = not scaffold._check_already_elevated()
+    check(len(_s180_elev_capture) == 1 and _s180_elev_capture[0] is _s180_expect_elev,
           f"180h: step-2 elevation reflects preset 2's _elevated=True "
-          f"(got {_s180_elev_capture!r})")
+          f"(expected {_s180_expect_elev}, got {_s180_elev_capture!r})")
 else:
     check(False, "180b: 'beta' check skipped — fewer than 2 argvs")
     check(False, "180c: --beta-flag check skipped")
@@ -31084,6 +31098,202 @@ _s216_win.deleteLater()
 app.processEvents()
 QSettings("Scaffold", "Scaffold").remove("cascade")
 shutil.rmtree(_s216_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 217
+# =====================================================================
+print("\n--- Section 217: Already-elevated app runs commands without a wrapper ---")
+
+# Before v2.13.2, is_elevation_checked() returned True for elevated=optional/
+# always schemas whenever the app itself was already elevated (root, or an
+# Administrator shell). Run, the preview and the copy actions then wrapped
+# the command in pkexec/gsudo, and with no wrapper installed Run showed a
+# blocking "Elevation Not Available" dialog instead of running.
+
+_s217_tmpdir = tempfile.mkdtemp(prefix="scaffold_test217_")
+_s217_path = os.path.join(_s217_tmpdir, "elev_217.json")
+Path(_s217_path).write_text(json.dumps({
+    "_format": "scaffold_schema",
+    "tool": "elev_217",
+    "binary": sys.executable,
+    "description": "Elevation regression tool",
+    "elevated": "optional",
+    "arguments": [{"name": "Code", "flag": "-c", "type": "string"}],
+}), encoding="utf-8")
+
+_s217_saved_elev = scaffold._already_elevated
+_s217_saved_tool = scaffold._elevation_tool
+_s217_win = scaffold.MainWindow()
+app.processEvents()
+
+try:
+    # --- 217a: already elevated -> no checkbox, no wrapper requested -----
+    scaffold._already_elevated = True
+    scaffold._elevation_tool = ""  # no pkexec/gsudo installed
+    _s217_win._load_tool_path(_s217_path)
+    app.processEvents()
+    _s217_form = _s217_win.form
+    check(_s217_form.elevation_check is None,
+          "217a: already elevated -> elevation checkbox is hidden")
+    check(_s217_form.is_elevation_checked() is False,
+          "217a: already elevated -> is_elevation_checked() is False (no wrapper)")
+
+    # --- 217b: preview shows the real command, not a pkexec/gsudo wrap ----
+    scaffold._elevation_tool = "/usr/bin/pkexec_217"  # a wrapper *is* available
+    _s217_win._update_preview()
+    _s217_preview = _s217_win.preview.toPlainText()
+    check("pkexec_217" not in _s217_preview,
+          f"217b: preview is not wrapped when already elevated (got {_s217_preview!r})")
+
+    # --- 217c: Run starts the process; no 'Elevation Not Available' box ---
+    scaffold._elevation_tool = ""
+    _s217_form._set_field_value((_s217_form.GLOBAL, "-c"), "print('ran_217')")
+    with _patch_qmb("warning") as _s217_warnings:
+        _s217_win._on_run_stop()
+        app.processEvents()
+        if _s217_win.process is not None:
+            _s217_win.process.waitForFinished(10000)
+        for _ in range(20):
+            app.processEvents()
+            time.sleep(0.02)
+    _s217_win._flush_output()
+    check(not any("Elevation" in t for t, _ in _s217_warnings),
+          f"217c: no elevation warning dialog when already elevated (got {_s217_warnings!r})")
+    check("ran_217" in _s217_win.output.toPlainText(),
+          "217c: the command actually ran")
+
+    # --- 217d: not elevated -> checkbox exists and drives the wrapper -----
+    scaffold._already_elevated = False
+    scaffold._elevation_tool = "/usr/bin/pkexec_217"
+    _s217_win._load_tool_path(_s217_path)
+    app.processEvents()
+    _s217_form = _s217_win.form
+    check(_s217_form.elevation_check is not None,
+          "217d: not elevated -> elevation checkbox is shown")
+    if _s217_form.elevation_check is not None:
+        _s217_form.elevation_check.setChecked(True)
+        check(_s217_form.is_elevation_checked() is True,
+              "217d: ticked checkbox -> is_elevation_checked() is True")
+        _s217_win._update_preview()
+        check("pkexec_217" in _s217_win.preview.toPlainText(),
+              "217d: ticked checkbox -> preview shows the wrapper")
+        _s217_form.elevation_check.setChecked(False)
+        check(_s217_form.is_elevation_checked() is False,
+              "217d: unticked checkbox -> is_elevation_checked() is False")
+finally:
+    scaffold._already_elevated = _s217_saved_elev
+    scaffold._elevation_tool = _s217_saved_tool
+    _s217_win.close()
+    _s217_win.deleteLater()
+    app.processEvents()
+    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+    shutil.rmtree(_s217_tmpdir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 218
+# =====================================================================
+print("\n--- Section 218: Placeholder preset hash does not halt cascades ---")
+
+# Bundled default presets (and LLM presets made with PRESET_PROMPT.txt) carry
+# _schema_hash "00000000", meaning "unknown". Before v2.13.2 the cascade gate
+# treated it as a mismatch and halted any cascade step that used such a
+# preset, which broke 4 of the 6 bundled example cascades.
+
+_s218_tmpdir = tempfile.mkdtemp(prefix="scaffold_test218_")
+_s218_tool = {
+    "_format": "scaffold_schema",
+    "tool": "tool_218",
+    "binary": sys.executable,
+    "description": "Placeholder-hash regression tool",
+    "arguments": [{"name": "Code", "flag": "-c", "type": "string"}],
+}
+_s218_tool_path = os.path.join(_s218_tmpdir, "tool_218.json")
+Path(_s218_tool_path).write_text(json.dumps(_s218_tool), encoding="utf-8")
+
+
+def _s218_preset(name, schema_hash_value):
+    p = os.path.join(_s218_tmpdir, f"{name}.json")
+    preset = {"_format": "scaffold_preset", "_subcommand": None,
+              "-c": "print('ran_218')"}
+    if schema_hash_value is not ...:
+        preset["_schema_hash"] = schema_hash_value
+    Path(p).write_text(json.dumps(preset), encoding="utf-8")
+    return p
+
+
+def _s218_run_chain(preset_path):
+    """Run a one-step cascade and return (finish_status, status_message)."""
+    QSettings("Scaffold", "Scaffold").remove("cascade")
+    win = scaffold.MainWindow()
+    dock = win.cascade_dock
+    app.processEvents()
+    dock._slots[0]["tool_path"] = _s218_tool_path
+    dock._slots[0]["preset_path"] = preset_path
+    for i in range(1, len(dock._slots)):
+        dock._slots[i]["tool_path"] = None
+    dock._cascade_variables = []
+    messages = []
+    win.statusBar().messageChanged.connect(lambda m: messages.append(m))
+    dock._on_run_chain()
+    for _ in range(300):
+        app.processEvents()
+        if dock._chain_state == scaffold.CHAIN_IDLE:
+            break
+        time.sleep(0.02)
+    status = dock._cascade_finish_status
+    out = win.output.toPlainText()
+    win.close()
+    win.deleteLater()
+    app.processEvents()
+    QSettings("Scaffold", "Scaffold").remove("cascade")
+    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+    return status, " | ".join(m for m in messages if m), out
+
+
+try:
+    # --- 218a: placeholder hash runs the step ----------------------------
+    _s218_status, _s218_msgs, _s218_out = _s218_run_chain(_s218_preset("placeholder", "00000000"))
+    check("schema changed" not in _s218_msgs,
+          f"218a: placeholder hash does not halt the cascade (status={_s218_status!r}, msgs={_s218_msgs[-160:]!r})")
+    check("ran_218" in _s218_out,
+          "218a: the step's command actually ran")
+
+    # --- 218b: absent hash (legacy) still runs ---------------------------
+    _s218_status, _s218_msgs, _s218_out = _s218_run_chain(_s218_preset("legacy", ...))
+    check("schema changed" not in _s218_msgs and "ran_218" in _s218_out,
+          "218b: preset with no _schema_hash still runs")
+
+    # --- 218c: a real but wrong hash still halts (gate intact) -----------
+    _s218_status, _s218_msgs, _s218_out = _s218_run_chain(_s218_preset("stale", "deadbeef"))
+    check(_s218_status == "error_halted" and "schema changed" in _s218_msgs,
+          f"218c: a real mismatched hash still halts the cascade (status={_s218_status!r})")
+    check("ran_218" not in _s218_out,
+          "218c: the stale-preset step did not run")
+
+    # --- 218d: single-tool load shows no 'different schema' note ---------
+    _s218_win = scaffold.MainWindow()
+    _s218_win._load_tool_path(_s218_tool_path)
+    app.processEvents()
+    _s218_win._apply_preset_from_path(_s218_preset("ui_placeholder", "00000000"))
+    _s218_msg = _s218_win.statusBar().currentMessage()
+    check("different schema" not in _s218_msg,
+          f"218d: placeholder hash gives no schema-version note on load (got {_s218_msg!r})")
+    _s218_win._apply_preset_from_path(_s218_preset("ui_stale", "deadbeef"))
+    check("different schema" in _s218_win.statusBar().currentMessage(),
+          "218d: a real mismatched hash still shows the schema-version note")
+    _s218_win.close()
+    _s218_win.deleteLater()
+    app.processEvents()
+
+    # --- 218e: the sentinel is the one PRESET_PROMPT.txt documents -------
+    _s218_prompt = (Path(scaffold.__file__).parent / "scaffold_data" / "PRESET_PROMPT.txt").read_text(encoding="utf-8")
+    check(f'"{scaffold.PRESET_HASH_UNKNOWN}"' in _s218_prompt,
+          "218e: PRESET_HASH_UNKNOWN matches the placeholder PRESET_PROMPT.txt tells LLMs to use")
+finally:
+    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+    shutil.rmtree(_s218_tmpdir, ignore_errors=True)
 
 # =====================================================================
 # Final cleanup

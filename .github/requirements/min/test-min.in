@@ -1,0 +1,5 @@
+# Oldest PySide6 that pyproject.toml allows (PySide6>=6.5). Deliberately pinned
+# and outside Dependabot's directory: this job proves the declared floor works.
+# Compile with Python 3.10:
+#   pip-compile --generate-hashes --allow-unsafe .github/requirements/min/test-min.in
+PySide6==6.5.3

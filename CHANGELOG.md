@@ -7,8 +7,25 @@ All notable changes to Scaffold are documented here.
 
 Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixes that were each reproduced against v2.13.1 before changing code. Every behavioral fix has a regression check in new `test_functional.py` sections §211 to §216, and each check was confirmed to fail on v2.13.1. Three v2.13.1 tests that were red on Linux/macOS (§107a to §107c, `test_security` 12b) now pass there.
 
+### Added
+
+- **Continuous integration** (`.github/workflows/`). Every pull request and push to `main`, plus a weekly scheduled run:
+  - all six test suites on Windows, macOS and Linux for Python 3.10 through 3.14, plus a job on the oldest PySide6 `pyproject.toml` allows (6.5) on all three OSes
+  - lint: Ruff with the Python 3.10 grammar (catches syntax that only newer Pythons accept), pyflakes on the app, Bandit at medium severity and up
+  - repo consistency (`.github/scripts/check_repo.py`): version strings agree, every `.py` has the AGPL header, CI pins match `pyproject.toml`, every action is SHA-pinned, and `shell=True`/`eval`/`exec`/`os.system` never appear in the app
+  - bundled data (`.github/scripts/check_data.py`): every JSON file parses, every schema validates, valid/invalid fixtures behave, every default preset validates against its tool, and every example cascade imports through the real sidebar code with resolvable paths
+  - packaging: build the sdist and wheel, `twine check`, confirm every bundled file is in the wheel, then install it into a clean venv on each OS and run it in installed mode from outside the repo
+  - `pip-audit` on every pinned dependency set; actionlint and zizmor on the workflows
+  - CodeQL (`security-extended`) for the Python code and for the workflow files; GitHub dependency review on PRs; OpenSSF Scorecard on `main`
+  - Dependabot for actions and the CI requirements, with a 7-day cooldown
+- Every action is pinned to a full commit SHA, every CI Python dependency is pinned with hashes (`.github/requirements/`), the default token is read-only, and no workflow uses `pull_request_target`.
+
 ### Fixed (high impact)
 
+- **Scaffold runs on Python 3.10 and 3.11 again.** A backslash inside an f-string expression (valid only from Python 3.12) made `scaffold.py` a `SyntaxError` on import, so the app could not start at all on the oldest two supported Pythons. This had been the case since about v2.11. Found by the new CI lint step; the 3.10 and 3.11 CI jobs now guard it.
+- **Python 3.10/3.11 no longer get PySide6 6.12.0.** That release drops a reference to `None` on every signal delivered to a Python slot (PYSIDE-3477). On Python 3.11 and older that eventually frees `None` itself and aborts the interpreter, in the middle of a session or on exit. `pyproject.toml` now keeps those Pythons below 6.12; Python 3.12+ is unaffected because `None` is immortal there. A non-blocking CI canary reports when a newer PySide6 fixes it.
+- **An already-elevated Scaffold runs elevated-capable tools directly.** When Scaffold itself ran as root or Administrator, any schema with `"elevated": "optional"` or `"always"` was wrapped in pkexec/gsudo anyway. Without pkexec/gsudo installed, Run showed a blocking "Elevation Not Available" dialog (on Windows it told you to relaunch as Administrator, which you already were), and the preview and copies showed a wrapper that wasn't needed.
+- **The bundled example cascades that use presets work.** The default presets, and any preset made with `PRESET_PROMPT.txt`, carry the documented placeholder `_schema_hash` `"00000000"`. The cascade gate treated it as a schema mismatch and halted the step, which broke 4 of the 6 bundled example cascades. The placeholder now means "unknown", like a missing hash; a real mismatched hash still halts.
 - **Custom PATH binaries can be launched.** QProcess looks a bare program name up on the *parent's* PATH, not the child environment Scaffold injected, so a tool found only in a File > Custom PATH directory showed as installed but failed with "not found" on Run. The binary is now resolved against the extended PATH first.
 - **Cascades no longer hang in "running" on Linux/macOS when a step's binary is missing.** `errorOccurred(FailedToStart)` is delivered asynchronously there, after the synchronous guard has already run. A per-process handler now cleans the chain up, and headless `--run-cascade` exits instead of hanging.
 - **Regex captures work on Windows/macOS when launched as `python scaffold.py`.** The spawn-based worker pool could not resolve `__main__._regex_worker_entry`, so every stdout/stderr capture timed out after 2 s.
@@ -40,12 +57,21 @@ Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixe
 
 ### Documentation
 
+- `SECURITY.md`: private vulnerability reporting, what is and isn't in scope, and what CI checks.
+- README: CI and CodeQL badges, and a note on what every pull request runs.
 - README rewritten for clarity: plain wording, no dash punctuation, first-person voice in the project sections.
 - README: new *Running cascades headless* section (options, exit codes, `QT_QPA_PLATFORM=offscreen` for machines with no display); headless mode shipped in v2.13.0 but was undocumented.
 - README: fixed `python scaffold.py tools/nmap.json` and other examples that pointed at `tools/` for bundled files; bundled schemas live in `scaffold_data/tools/`.
 - README: Custom PATH section notes that the command echo and history show the resolved program path; lines-of-code badge updated; UTF-8 requirement added to Limitations.
 - `--help`: `--var` explains that the name is the variable's flag; notes that options may appear in any order.
 - `CASCADE_LLM_GENERATION_GUIDE.md`: documents the `delay` range, that steps must be objects, forward-slash paths and the `..` rule.
+
+### Tests
+
+- Sections §217 (already-elevated runs) and §218 (placeholder preset hash) added; both fail on v2.13.1.
+- The "Stop a Running Process" test (§3c) used the Windows `ping` schema, so it failed on Linux and macOS. It now uses a short Python sleeper on every OS, and a process that fails to start is a failure instead of a silent pass.
+- §128 shows its window before closing the dock, as a real user would; PySide6 6.5 doesn't emit `visibilityChanged` for a window that was never shown.
+- `test_manual_verification.py` pins elevation detection to "not elevated" so its checkbox checks run the same on Administrator CI runners; §180h expects no wrapper when the runner is already elevated.
 
 ### Removed
 

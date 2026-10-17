@@ -1,5 +1,7 @@
 Scaffold: Your CLI Tools, but with Buttons
 
+[![CI](https://github.com/kevwillow/scaffold/actions/workflows/ci.yml/badge.svg)](https://github.com/kevwillow/scaffold/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/kevwillow/scaffold/actions/workflows/codeql.yml/badge.svg)](https://github.com/kevwillow/scaffold/actions/workflows/codeql.yml)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)
 ![Single File](https://img.shields.io/badge/architecture-single%20file-blue)
@@ -270,6 +272,8 @@ python test_security.py
 ```
 
 The security model has been through several rounds of LLM-assisted audits.
+
+Every pull request also runs the full test suites on Windows, macOS and Linux across every supported Python version, along with CodeQL, Bandit, dependency audits and workflow security checks. See [SECURITY.md](SECURITY.md) for what's checked and how to report a vulnerability privately.
 
 ---
 

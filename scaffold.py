@@ -725,6 +725,13 @@ def normalize_tool(data: dict) -> dict:
     return data
 
 
+# Placeholder hash that PRESET_PROMPT.txt tells LLMs to emit when they don't
+# know a schema's hash, and that the bundled default presets ship with. It
+# means "unknown", so it's treated like a missing hash (no drift check)
+# rather than as a mismatch.
+PRESET_HASH_UNKNOWN = "00000000"
+
+
 def schema_hash(data: dict) -> str:
     """Compute a short hash of a tool's argument flags for preset versioning."""
     flags = sorted(
@@ -1028,7 +1035,7 @@ def _elevation_label():
 from PySide6.QtCore import QEvent, QEventLoop, QPoint, QProcess, QProcessEnvironment, QSettings, QStandardPaths, Qt, QTimer, Signal  # noqa: E402
 from PySide6.QtGui import QAction, QActionGroup, QColor, QCursor, QDragEnterEvent, QDropEvent, QFont, QFontMetrics, QImage, QKeySequence, QPainter, QPalette, QPen, QPolygon, QShortcut, QTextCharFormat, QTextCursor  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
-    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QDoubleSpinBox, QFileDialog,
+    QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QDoubleSpinBox, QFileDialog,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
     QInputDialog, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox,
@@ -2557,10 +2564,15 @@ class ToolForm(QWidget):
     # ------------------------------------------------------------------
 
     def is_elevation_checked(self) -> bool:
-        """Return True if the elevation checkbox exists and is checked."""
+        """Return True if the elevation checkbox exists and is checked.
+
+        Callers use this to decide whether to wrap the command in pkexec or
+        gsudo. An app that is already elevated has no checkbox and runs
+        commands directly, so no wrapper (and no wrapper tool) is needed.
+        """
         if self.elevation_check is not None:
             return self.elevation_check.isChecked()
-        return _check_already_elevated() and self.data.get("elevated") in ("optional", "always")
+        return False
 
     def build_command(self) -> tuple[list[str], str]:
         """Build the CLI command. Returns (cmd_list, display_string)."""
@@ -3011,10 +3023,13 @@ def _user_data_root() -> Path:
         loc = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
         if loc:
             d = Path(loc)
-            # AppDataLocation only auto-appends QCoreApplication.applicationName()
-            # when it has been set; scaffold doesn't set it at startup, so on a
-            # fresh process the path is the platform root (e.g. %APPDATA%) with
-            # no app suffix. Append "Scaffold" ourselves unless it's already there.
+            # AppDataLocation appends QCoreApplication.applicationName(). Scaffold
+            # never sets it, so before a QApplication exists it is empty, and
+            # after one exists Qt falls back to the executable name ("scaffold"
+            # for the console script). Append "Scaffold" ourselves unless it's
+            # already there. In practice this means an installed GUI run uses
+            # e.g. ~/.local/share/scaffold/Scaffold on Linux; changing that
+            # would orphan existing users' presets, so it needs a migration.
             if d.name != "Scaffold":
                 d = d / "Scaffold"
             d.mkdir(parents=True, exist_ok=True)
@@ -8357,11 +8372,11 @@ class CascadeSidebar(QDockWidget):
                 # Schema-hash warning (interactive, non-blocking). Mirrors
                 # _on_load_preset UI semantics — slot click is human-initiated,
                 # so warn via status bar rather than halt like _chain_advance
-                # (unattended). Absent _schema_hash is legacy-allowed.
+                # (unattended). An absent or placeholder _schema_hash is legacy-allowed.
                 preset_name = Path(preset_path).stem
                 saved_hash = preset_data.get("_schema_hash")
                 hash_mismatch = False
-                if saved_hash is not None:
+                if saved_hash not in (None, PRESET_HASH_UNKNOWN):
                     current_hash = schema_hash(self._main_window.data)
                     if saved_hash != current_hash:
                         hash_mismatch = True
@@ -8761,10 +8776,13 @@ class CascadeSidebar(QDockWidget):
         # Preserve output from previous chain steps
         self._main_window._chain_preserve_output = True
         if self._chain_current == 0 and self._chain_loop_count > 0 and hasattr(self._main_window, 'output'):
-            sep = f"\n{'\u2550' * 60}\n  Loop {self._chain_loop_count + 1}\n{'\u2550' * 60}\n"
+            # Built outside the f-string: a backslash inside an f-string
+            # expression is a SyntaxError before Python 3.12.
+            bar = "\u2550" * 60
+            sep = f"\n{bar}\n  Loop {self._chain_loop_count + 1}\n{bar}\n"
             self._main_window._append_output(sep, "gray")
         elif self._chain_current > 0 and hasattr(self._main_window, 'output'):
-            sep = f"\n{'\u2500' * 60}\n"
+            sep = "\n" + "\u2500" * 60 + "\n"
             self._main_window._append_output(sep, "gray")
 
         # Clear stale recovery file before loading next tool
@@ -8878,9 +8896,9 @@ class CascadeSidebar(QDockWidget):
                 # Schema-hash gate: cascades run unattended, so a stale preset
                 # would silently produce a wrong command. UI mode (line ~8931)
                 # warns instead — correct there, since a human can react.
-                # Absent _schema_hash is treated as legacy (mirrors UI guard).
+                # An absent or placeholder _schema_hash is treated as legacy (mirrors UI guard).
                 saved_hash = preset_data.get("_schema_hash")
-                if saved_hash is not None:
+                if saved_hash not in (None, PRESET_HASH_UNKNOWN):
                     current_hash = schema_hash(self._main_window.data)
                     if saved_hash != current_hash:
                         preset_name = Path(preset_path).stem
@@ -11140,7 +11158,7 @@ class MainWindow(QMainWindow):
 
         # Check schema hash for version mismatch
         saved_hash = preset.get("_schema_hash")
-        if saved_hash is not None and saved_hash != schema_hash(self.data):
+        if saved_hash not in (None, PRESET_HASH_UNKNOWN) and saved_hash != schema_hash(self.data):
             self.statusBar().showMessage(
                 f"Preset loaded: {name} \u2014 Note: This preset was saved with a different "
                 "schema version. Some fields may not have loaded."
