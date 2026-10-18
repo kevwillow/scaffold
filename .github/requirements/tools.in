@@ -1,0 +1,9 @@
+# Lint, security and packaging tools used by CI. Compile with Python 3.13:
+#   pip-compile --generate-hashes --allow-unsafe .github/requirements/tools.in
+ruff
+bandit
+zizmor
+actionlint-py
+pip-audit
+build
+twine

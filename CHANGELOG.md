@@ -3,6 +3,92 @@
 All notable changes to Scaffold are documented here.
 
 
+## [v2.13.2] — Unreleased
+
+Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixes that were each reproduced against v2.13.1 before changing code. Every behavioral fix has a regression check in new `test_functional.py` sections §211 to §216, and each check was confirmed to fail on v2.13.1. Three v2.13.1 tests that were red on Linux/macOS (§107a to §107c, `test_security` 12b) now pass there.
+
+### Added
+
+- **Continuous integration** (`.github/workflows/`). Every pull request and push to `main`, plus a weekly scheduled run:
+  - all six test suites on Windows, macOS and Linux for Python 3.10 through 3.14, plus a job on the oldest PySide6 `pyproject.toml` allows (6.5) on all three OSes
+  - lint: Ruff with the Python 3.10 grammar (catches syntax that only newer Pythons accept), pyflakes on the app, Bandit at medium severity and up
+  - repo consistency (`.github/scripts/check_repo.py`): version strings agree, every `.py` has the AGPL header, CI pins match `pyproject.toml`, every action is SHA-pinned, and `shell=True`/`eval`/`exec`/`os.system` never appear in the app
+  - bundled data (`.github/scripts/check_data.py`): every JSON file parses, every schema validates, valid/invalid fixtures behave, every default preset validates against its tool, and every example cascade imports through the real sidebar code with resolvable paths
+  - packaging: build the sdist and wheel once, `twine check`, confirm every bundled file is in both, then install the wheel into a clean venv on each OS and run it in installed mode from outside the repo (it also reports which user-data folder the `scaffold` command really uses on that OS)
+  - `pip-audit` on every pinned dependency set; actionlint and zizmor on the workflows
+  - CodeQL (`security-extended`) for the Python code and for the workflow files; GitHub dependency review on PRs; OpenSSF Scorecard on `main`
+  - Dependabot for actions and the CI requirements, with a 7-day cooldown
+- Every action is pinned to a full commit SHA, every CI Python dependency is pinned with hashes (`.github/requirements/`), the default token is read-only, and no workflow uses `pull_request_target`.
+
+### Fixed (high impact)
+
+- **Scaffold runs on Python 3.10 and 3.11 again.** A backslash inside an f-string expression (valid only from Python 3.12) made `scaffold.py` a `SyntaxError` on import, so the app could not start at all on the oldest two supported Pythons. This had been the case since about v2.11. Found by the new CI lint step; the 3.10 and 3.11 CI jobs now guard it.
+- **Python 3.10/3.11 no longer get PySide6 6.12.0.** That release drops a reference to `None` on every signal delivered to a Python slot (PYSIDE-3477). On Python 3.11 and older that eventually frees `None` itself and aborts the interpreter, in the middle of a session or on exit. `pyproject.toml` now keeps those Pythons below 6.12; Python 3.12+ is unaffected because `None` is immortal there. A non-blocking CI canary reports when a newer PySide6 fixes it.
+- **An already-elevated Scaffold runs elevated-capable tools directly.** When Scaffold itself ran as root or Administrator, any schema with `"elevated": "optional"` or `"always"` was wrapped in pkexec/gsudo anyway. Without pkexec/gsudo installed, Run showed a blocking "Elevation Not Available" dialog (on Windows it told you to relaunch as Administrator, which you already were), and the preview and copies showed a wrapper that wasn't needed.
+- **The bundled example cascades that use presets work.** The default presets, and any preset made with `PRESET_PROMPT.txt`, carry the documented placeholder `_schema_hash` `"00000000"`. The cascade gate treated it as a schema mismatch and halted the step, which broke 4 of the 6 bundled example cascades. The placeholder now means "unknown", like a missing hash; a real mismatched hash still halts.
+- **Custom PATH binaries can be launched.** QProcess looks a bare program name up on the *parent's* PATH, not the child environment Scaffold injected, so a tool found only in a File > Custom PATH directory showed as installed but failed with "not found" on Run. The binary is now resolved against the extended PATH first.
+- **Cascades no longer hang in "running" on Linux/macOS when a step's binary is missing.** `errorOccurred(FailedToStart)` is delivered asynchronously there, after the synchronous guard has already run. A per-process handler now cleans the chain up, and headless `--run-cascade` exits instead of hanging.
+- **Regex captures work on Windows/macOS when launched as `python scaffold.py`.** The spawn-based worker pool could not resolve `__main__._regex_worker_entry`, so every stdout/stderr capture timed out after 2 s.
+- **PowerShell "Copy as" quoting.** Typographic single quotes (U+2018 to U+201B) end a PowerShell single-quoted string and are now doubled; previously `x’; calc; ’` broke out of quoting. Tokens containing `,` (array operator, split into separate argv entries) or `@` (splatting) are now quoted.
+- **Positional password values are masked** in the `$ …` output line and in saved history.
+- **One malformed schema no longer stops Scaffold from starting.** A non-string `description`, or a list/dict value for `type`, `separator`, `elevated`, `group`, `flag` or `depends_on`, is now a validation error instead of an uncaught exception in the tool picker.
+- **Non-UTF-8 JSON** (e.g. UTF-16 written by PowerShell's `>`) now produces a clean "not valid UTF-8" error for schemas, presets, cascades, recovery files, `--vars` and the headless peek, instead of an unhandled `UnicodeDecodeError`.
+- **Headless variables.** `--var` / `--vars` accept the variable's flag as its name (`--var --input=x`); previously only flags shaped like bare identifiers could be supplied. Flags placed before `--run-cascade` are no longer silently ignored, and a `--vars` file with a UTF-8 BOM is accepted.
+
+### Fixed (medium and low impact)
+
+- Stopping a cascade during an inter-step delay could let the stale timer advance the next run, skipping steps (run-generation guard).
+- Cascade import: `delay` is coerced to the spinbox's 0 to 3600 integer range; non-object steps are rejected; a rejected file (unsafe path, bad variable) now leaves the sidebar intact instead of half torn down.
+- Mutually exclusive group: unchecking a sibling now also disables its `depends_on` children, which previously still reached argv.
+- Tool List (Ctrl+B), Back and Reload during a run reset the Run button, timers and "Running…" label.
+- On a crash, the process's last output is printed before the "Process crashed" banner.
+- Tool picker rescan, preset star toggling under a filter, and cascade-history delete/clear under a filter keep visibility and collapse state consistent.
+- Preset picker tolerates non-object preset files and non-string `_description`; Edit Description updates the tooltip.
+- View > Theme > System after choosing Light/Dark follows the OS again (Qt 6.8+ color-scheme override is cleared before reading).
+- Headless runs no longer overwrite or delete the GUI's crash-recovery files, or its saved window geometry.
+- CMD "Copy as" doubles trailing backslashes before the closing quote; subcommand tooltips and decorated field labels are HTML-escaped; cascade export writes forward slashes so Windows-saved cascades load on POSIX; the per-entry history size cap now applies to cascade runs; finished QProcess objects are released; the crash-recovery file is created under an owner-only umask; the stop-on-error button restyles on theme change; a capture with `"group": null` uses the default group; a non-bytes `window/geometry` setting no longer prevents startup.
+- An argument with an empty `"flag": ""` is now a validation error that points to `"positional": true`. It used to load and then put an empty-string argument on the command line (`python3 '' script.py` made Python look for `__main__` in the current folder).
+- `_cascade_path_is_safe` rejects backslash traversal (`..\..\x`) on POSIX too, so cascade files are judged the same on every platform.
+
+### Changed (visible behavior)
+
+- **Installed (pip) data now lives where the README always said:** `~/.local/share/Scaffold/`, `~/Library/Application Support/Scaffold/`, `%APPDATA%\Scaffold\`. Scaffold never set an application name, so Qt named the folder after the executable and older versions really used `~/.local/share/scaffold/Scaffold/`, `~/Library/Application Support/Python/Scaffold/` and `%APPDATA%\python\Scaffold\`. Source and portable installs are unaffected.
+  - **Migration:** on first launch Scaffold copies each old folder's presets, cascades and tools into the new one and repoints the saved last tool, recent tools and cascade slots. It only copies: nothing is moved, overwritten or deleted. Every old folder Qt could have produced is found (`scaffold`, `scaffold.py`, `python`, `Python`, `pythonw`, `python3`, `pythonw3`, `python3t` and so on).
+    - **No version is hidden.** When two old folders hold different files with the same name, the newest keeps the name. A file already in the new folder always keeps its name. The other version is saved next to it as `name (from <folder>).json`. An untouched copy of a bundled default preset is not duplicated.
+    - **Saved paths follow their own file.** A saved path is repointed only to the copy of that same file, and only while the old file is gone or unchanged, so a cascade slot never switches to a different version. The rewrite works from the marker's record, so it still works after the old folder is deleted, after a headless `--run-cascade` first launch, and when an older Scaffold sharing the settings writes old paths back. Matching is case-insensitive on macOS and Windows.
+    - **Per folder, once.** A finished folder gets a `MOVED.txt` note and is recorded in `.migrated_from_legacy.json` in the new folder. Emptying the new folder doesn't bring old data back, and an old folder that turns up later is still copied. A failed copy is retried on the next launch, up to three launches; after that the files that still fail are listed in `MOVED.txt` and stay where they are. Default presets aren't seeded while a copy is pending, so a stock preset can't take the name of the user's edited one.
+    - **Crash- and race-safe.** Each file is copied to a private temp file and hard-linked into place (renamed on filesystems without hard links), so a crash never leaves a half-written file under its real name and two Scaffolds starting at once don't trip over each other. `MOVED.txt` is never written through a symlink or over an existing file, and a symlinked folder in one old folder can't redirect files copied from another.
+    - Cascade-history entries that recorded old absolute paths are not rewritten.
+- With Custom PATH directories configured, the `$ …` line and history show the resolved absolute binary path.
+- PowerShell copies quote tokens containing `,` or `@` (e.g. `'user@host'`); still literal and correct.
+- `--run-cascade` reports unknown tokens anywhere on the command line as usage errors.
+
+### Documentation
+
+- `SECURITY.md`: private vulnerability reporting, what is and isn't in scope, and what CI checks.
+- README: CI and CodeQL badges, and a note on what every pull request runs.
+- README rewritten for clarity: plain wording, no dash punctuation, first-person voice in the project sections.
+- README: new *Running cascades headless* section (options, exit codes, `QT_QPA_PLATFORM=offscreen` for machines with no display); headless mode shipped in v2.13.0 but was undocumented.
+- README: fixed `python scaffold.py tools/nmap.json` and other examples that pointed at `tools/` for bundled files; bundled schemas live in `scaffold_data/tools/`.
+- README: Custom PATH section notes that the command echo and history show the resolved program path; lines-of-code badge updated; UTF-8 requirement added to Limitations.
+- `--help`: `--var` explains that the name is the variable's flag; notes that options may appear in any order.
+- `CASCADE_LLM_GENERATION_GUIDE.md`: documents the `delay` range, that steps must be objects, forward-slash paths and the `..` rule.
+
+### Tests
+
+- Sections §217 (already-elevated runs), §218 (placeholder preset hash), §219 (empty flags) and §220 (data folder and migration: copy-only, no overwrite, conflict copies, newest version wins, resume and retry limit, unreadable files and folders, every Qt exe name, case-insensitive nesting and path matching, symlinks, long file names, settings rewrite from the marker, tampered markers, seeding held while pending, per-folder completion, concurrent launches, headless first launch, crash safety) added; all fail on v2.13.1.
+- The CI install job is now an end-to-end migration test on Windows, macOS and Linux: it plants data where each OS's older `scaffold` command kept it, runs the installed command, and checks the copy, the backup, the marker and that a second launch does nothing.
+- §96's SIGTERM-resistant helper never actually ran: its schema used an empty flag, so Python got an empty script path and exited at once, and the checks passed on timing alone (macOS CI exposed it). The helper now uses a positional argument, and 96f waits until the child has installed its signal handler before clicking Stop. §154's helper schema got the same fix.
+- The "Stop a Running Process" test (§3c) used the Windows `ping` schema, so it failed on Linux and macOS. It now uses a short Python sleeper on every OS, and a process that fails to start is a failure instead of a silent pass.
+- Tests that run the bundled (Windows) ping schema now get a ping test double on Linux and macOS (`tests/fake_ping/ping`, first on PATH there). Real ping on those systems reads `-n` as "numeric output" and never exits, which hung the smoke and functional run tests on GitHub's runners. Windows still uses real ping.
+- §128 shows its window before closing the dock, as a real user would; PySide6 6.5 doesn't emit `visibilityChanged` for a window that was never shown.
+- `test_manual_verification.py` pins elevation detection to "not elevated" so its checkbox checks run the same on Administrator CI runners; §180h expects no wrapper when the runner is already elevated.
+
+### Removed
+
+- Dead code: Python < 3.9 fallback in `_cascade_path_is_safe`, redundant local `import os`, duplicate `os.kill(SIGKILL)` before `QProcess.kill()`, unused locals in `_update_preview` / output search / `_parse_run_cascade_args`, duplicated header-arrow parsing in the tool picker.
+
+
 ## [v2.13.1] — 2026-04-26
 
 Headless `--run-cascade` now honors the saved `loop_mode` flag from the cascade JSON, with a safety rail. v2.13.0 silently dropped the flag and always ran a single iteration unless `--loop N` was supplied — the reasoning was CI safety, since honoring `loop_mode=true` from a saved file would mean infinite loops in cron jobs. The silent drop surprised users who built a cascade in the GUI with loop on and expected the same intent to carry over headlessly. This release surfaces the saved intent without compromising automation safety: if the cascade has `loop_mode=true`, `--loop N` is now **required** rather than ignored. Absent or false `loop_mode` continues to default to a single iteration.

@@ -1,0 +1,7 @@
+# Runtime dependencies for the test suites. Must match [project].dependencies
+# in pyproject.toml (.github/scripts/check_repo.py enforces this).
+# Compiled twice, once per interpreter family:
+#   Python 3.13:  pip-compile --generate-hashes --allow-unsafe --strip-extras -o .github/requirements/test-py312.txt .github/requirements/test.in
+#   Python 3.10:  pip-compile --generate-hashes --allow-unsafe --strip-extras -o .github/requirements/test-py310.txt .github/requirements/test.in
+PySide6>=6.5,<6.12; python_version < '3.12'
+PySide6>=6.5; python_version >= '3.12'

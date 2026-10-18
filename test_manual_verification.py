@@ -40,6 +40,12 @@ import scaffold
 # Suppress the first-run welcome modal so tests don't block on QDialog.exec()
 scaffold.MainWindow._suppress_welcome_dialog = True
 
+# These checks exercise the elevation checkbox, which is hidden when the app
+# is already elevated (root, or an Administrator CI runner). Pin the cached
+# detection to "not elevated" so they run the same everywhere; the elevated
+# path is covered by test_functional.py section 217.
+scaffold._already_elevated = False
+
 # Auto-accept missing _format warnings (test schemas intentionally lack _format)
 _original_qmb_warning = QMessageBox.warning
 

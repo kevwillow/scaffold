@@ -35,10 +35,11 @@ Requires: PySide6 (pip install PySide6) — no other dependencies.
 Minimum Python version: 3.10
 """
 
-__version__ = "2.13.1"
+__version__ = "2.13.2"
 
 import atexit
 import datetime
+import filecmp
 import hashlib
 import html
 import json
@@ -216,9 +217,11 @@ CASCADE_HISTORY_VERSION = 1
 
 
 def _enforce_history_entry_size(entry: dict) -> dict:
-    """Return a copy of entry with preset_data dropped if the serialized
-    entry exceeds HISTORY_ENTRY_MAX_BYTES. The display/timestamp/exit_code
-    fields are always preserved so the user still sees the run happened."""
+    """Return a copy of entry with its restorable payload dropped if the
+    serialized entry exceeds HISTORY_ENTRY_MAX_BYTES. The payload is
+    preset_data for command history and config for cascade runs. The
+    display/timestamp/exit_code fields are always preserved so the user
+    still sees the run happened."""
     try:
         size = len(json.dumps(entry).encode("utf-8"))
     except (TypeError, ValueError):
@@ -226,7 +229,9 @@ def _enforce_history_entry_size(entry: dict) -> dict:
     if size <= HISTORY_ENTRY_MAX_BYTES:
         return entry
     shrunk = dict(entry)
-    shrunk["preset_data"] = None
+    for key in ("preset_data", "config"):
+        if key in shrunk:
+            shrunk[key] = None
     shrunk["_oversized"] = True
     return shrunk
 
@@ -266,15 +271,11 @@ def load_tool(path: str | Path) -> dict:
             f"Schema file too large ({size:,} bytes, limit {MAX_SCHEMA_SIZE:,}): {p.name}"
         )
     try:
-        text = p.read_text(encoding="utf-8")
+        return _read_json_file(p)
     except PermissionError:
         raise RuntimeError(f"Permission denied: {p}")
     except OSError as e:
         raise RuntimeError(f"Cannot read file: {p} — {e}")
-    if text.startswith("\ufeff"):
-        text = text[1:]
-    try:
-        return json.loads(text)
     except json.JSONDecodeError as e:
         raise RuntimeError(f"Invalid JSON in {p} — {e}")
 
@@ -283,10 +284,16 @@ def _read_json_file(path) -> dict:
     """Read a JSON file, stripping UTF-8 BOM if present.
 
     Accepts str or Path. Raises OSError on read failure and
-    json.JSONDecodeError on parse failure. Callers handle errors.
+    json.JSONDecodeError on parse failure, including non-UTF-8 content.
+    Callers handle errors.
     """
     p = Path(path)
-    text = p.read_text(encoding="utf-8")
+    try:
+        text = p.read_text(encoding="utf-8")
+    except UnicodeDecodeError as e:
+        # e.g. UTF-16 written by PowerShell's `>`. Re-raise as a parse error
+        # so the (JSONDecodeError, OSError) callers handle it.
+        raise json.JSONDecodeError(f"File is not valid UTF-8 ({e.reason})", "", e.start) from e
     if text.startswith("\ufeff"):
         text = text[1:]
     return json.loads(text)
@@ -352,6 +359,11 @@ def validate_tool(data: dict) -> list[str]:
     for key in ("tool", "binary", "description", "arguments"):
         if key not in data:
             errors.append(f"Missing required top-level key: \"{key}\"")
+
+    # null is tolerated (the picker shows it as blank); other non-strings
+    # crash the picker's html.escape.
+    if data.get("description") is not None and not isinstance(data["description"], str):
+        errors.append("\"description\" must be a string")
 
     # Validate "tool" field shape — security-sensitive (used as a directory
     # name under presets/ and default_presets/; must not enable path traversal).
@@ -427,7 +439,7 @@ def validate_tool(data: dict) -> list[str]:
         _check_dependencies(data["arguments"], "top-level", errors)
 
     if data.get("elevated") is not None:
-        if data["elevated"] not in VALID_ELEVATED:
+        if not isinstance(data["elevated"], str) or data["elevated"] not in VALID_ELEVATED:
             errors.append(
                 f"Invalid \"elevated\" value \"{data['elevated']}\" "
                 f"(must be one of: {', '.join(sorted(VALID_ELEVATED))}, or null)"
@@ -510,6 +522,13 @@ def _validate_args(args: list, scope: str, errors: list) -> None:
         if "flag" in arg:
             if not isinstance(arg["flag"], str):
                 errors.append(f"{prefix}: \"flag\" must be a string, got {type(arg['flag']).__name__}")
+            elif not arg["flag"]:
+                # An empty flag would put an empty-string argument on the
+                # command line, which most programs reject or misread.
+                errors.append(
+                    f"{prefix}: \"flag\" cannot be empty (for a bare value, use a "
+                    f"placeholder name like \"TARGET\" and set \"positional\": true)"
+                )
             else:
                 if arg["flag"] != arg["flag"].strip():
                     errors.append(f"{prefix}: flag \"{arg['flag']}\" has leading/trailing whitespace")
@@ -518,7 +537,7 @@ def _validate_args(args: list, scope: str, errors: list) -> None:
 
         if "type" in arg:
             t = arg["type"]
-            if t not in VALID_TYPES:
+            if not isinstance(t, str) or t not in VALID_TYPES:
                 errors.append(f"{prefix}: invalid type \"{t}\" (must be one of: {', '.join(sorted(VALID_TYPES))})")
             if t in ("enum", "multi_enum"):
                 choices = arg.get("choices")
@@ -535,7 +554,8 @@ def _validate_args(args: list, scope: str, errors: list) -> None:
                             f"Argument \"{flag_label}\": required {t} must specify a non-null \"default\""
                         )
 
-        if "separator" in arg and arg["separator"] not in VALID_SEPARATORS:
+        if "separator" in arg and (not isinstance(arg["separator"], str)
+                                   or arg["separator"] not in VALID_SEPARATORS):
             errors.append(f"{prefix}: invalid separator \"{arg['separator']}\" (must be one of: {', '.join(sorted(VALID_SEPARATORS))})")
 
         if "examples" in arg and arg["examples"] is not None:
@@ -643,7 +663,9 @@ def _check_groups(args: list, scope: str, errors: list) -> None:
         if not isinstance(arg, dict):
             continue
         g = arg.get("group")
-        if g:
+        if g and not isinstance(g, str):
+            errors.append(f"{scope}: argument \"{arg.get('name', '?')}\": \"group\" must be a string or null")
+        elif g:
             groups.setdefault(g, []).append(arg.get("name", "?"))
     for g, members in groups.items():
         if len(members) < 2:
@@ -657,14 +679,16 @@ def _check_dependencies(args: list, scope: str, errors: list) -> None:
         if not isinstance(arg, dict):
             continue
         flag = arg.get("flag")
-        if flag:
+        if isinstance(flag, str) and flag:
             flags.add(flag)
     for arg in args:
         if not isinstance(arg, dict):
             continue
         dep = arg.get("depends_on")
-        if dep and dep not in flags:
-            name = arg.get("name", "?")
+        name = arg.get("name", "?")
+        if dep and not isinstance(dep, str):
+            errors.append(f"{scope}: argument \"{name}\": \"depends_on\" must be a string or null")
+        elif dep and dep not in flags:
             errors.append(f"{scope}: argument \"{name}\" depends on \"{dep}\" which does not exist in this scope")
 
 
@@ -707,6 +731,13 @@ def normalize_tool(data: dict) -> dict:
                 _normalize_args(sub.get("arguments", []))
 
     return data
+
+
+# Placeholder hash that PRESET_PROMPT.txt tells LLMs to emit when they don't
+# know a schema's hash, and that the bundled default presets ship with. It
+# means "unknown", so it's treated like a missing hash (no drift check)
+# rather than as a mismatch.
+PRESET_HASH_UNKNOWN = "00000000"
 
 
 def schema_hash(data: dict) -> str:
@@ -948,7 +979,6 @@ def _check_already_elevated():
         except (AttributeError, RuntimeError):
             _already_elevated = False
     else:
-        import os
         _already_elevated = os.geteuid() == 0
     return _already_elevated
 
@@ -1013,7 +1043,7 @@ def _elevation_label():
 from PySide6.QtCore import QEvent, QEventLoop, QPoint, QProcess, QProcessEnvironment, QSettings, QStandardPaths, Qt, QTimer, Signal  # noqa: E402
 from PySide6.QtGui import QAction, QActionGroup, QColor, QCursor, QDragEnterEvent, QDropEvent, QFont, QFontMetrics, QImage, QKeySequence, QPainter, QPalette, QPen, QPolygon, QShortcut, QTextCharFormat, QTextCursor  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
-    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QDoubleSpinBox, QFileDialog,
+    QAbstractSpinBox, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget, QDoubleSpinBox, QFileDialog,
     QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
     QInputDialog, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox,
@@ -1122,7 +1152,14 @@ LIGHT_WARNING_BORDER = "#ffc107"
 def _detect_system_dark() -> bool:
     """Return True if the OS is currently using a dark color scheme."""
     try:
-        scheme = QApplication.styleHints().colorScheme()
+        hints = QApplication.styleHints()
+        # apply_theme pins an explicit scheme (Qt 6.8+), and colorScheme()
+        # reports that override instead of the OS value until it is cleared.
+        try:
+            hints.unsetColorScheme()
+        except AttributeError:
+            pass  # Qt < 6.8 — no override API
+        scheme = hints.colorScheme()
         return scheme == Qt.ColorScheme.Dark
     except AttributeError:
         pass
@@ -1516,7 +1553,7 @@ class ToolForm(QWidget):
                 self.sub_combo.addItem(label, sub["name"])
                 if full_desc:
                     idx = self.sub_combo.count() - 1
-                    self.sub_combo.setItemData(idx, f"<p>{full_desc}</p>", Qt.ItemDataRole.ToolTipRole)
+                    self.sub_combo.setItemData(idx, f"<p>{html.escape(full_desc)}</p>", Qt.ItemDataRole.ToolTipRole)
             self.sub_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             self.sub_combo.setMinimumWidth(200)
             self.sub_combo.setMaximumWidth(600)
@@ -2072,9 +2109,9 @@ class ToolForm(QWidget):
                 field = self.fields[fk]
                 w = field["widget"]
                 if isinstance(w, QCheckBox):
-                    w.blockSignals(True)
+                    # Signals stay live so the sibling's depends_on children
+                    # are re-evaluated; the unchecked state returns early above.
                     w.setChecked(False)
-                    w.blockSignals(False)
         self.command_changed.emit()
 
     # ------------------------------------------------------------------
@@ -2535,10 +2572,15 @@ class ToolForm(QWidget):
     # ------------------------------------------------------------------
 
     def is_elevation_checked(self) -> bool:
-        """Return True if the elevation checkbox exists and is checked."""
+        """Return True if the elevation checkbox exists and is checked.
+
+        Callers use this to decide whether to wrap the command in pkexec or
+        gsudo. An app that is already elevated has no checkbox and runs
+        commands directly, so no wrapper (and no wrapper tool) is needed.
+        """
         if self.elevation_check is not None:
             return self.elevation_check.isChecked()
-        return _check_already_elevated() and self.data.get("elevated") in ("optional", "always")
+        return False
 
     def build_command(self) -> tuple[list[str], str]:
         """Build the CLI command. Returns (cmd_list, display_string)."""
@@ -2571,6 +2613,7 @@ class ToolForm(QWidget):
         """Return a copy of cmd with password-type values replaced by ********."""
         # Collect password flags and their separators for active scopes
         pw_flags = {}
+        pw_positional = set()
         sub = self.get_current_subcommand()
         scopes = {self.GLOBAL}
         if sub:
@@ -2581,11 +2624,16 @@ class ToolForm(QWidget):
                 continue
             if field["arg"]["type"] != "password":
                 continue
-            if self.get_field_value(key) is None:
+            value = self.get_field_value(key)
+            if value is None:
+                continue
+            if field["arg"]["positional"]:
+                # No flag token precedes a positional value, so match the value
+                pw_positional.add(str(value))
                 continue
             pw_flags[flag] = field["arg"].get("separator", "space")
 
-        if not pw_flags:
+        if not pw_flags and not pw_positional:
             return list(cmd)
 
         # Build set of ALL flags in the schema (for prefix-collision checks)
@@ -2628,7 +2676,7 @@ class ToolForm(QWidget):
                         matched = True
                         break
             if not matched:
-                masked.append(token)
+                masked.append("********" if token in pw_positional else token)
             i += 1
         return masked
 
@@ -2686,7 +2734,7 @@ class ToolForm(QWidget):
 
             # Rebuild label text only if it has any theme-sensitive decoration
             if arg["required"] or arg.get("dangerous") or arg.get("deprecated"):
-                label_text = arg["name"]
+                label_text = html.escape(arg["name"])
                 if arg["required"]:
                     label_text = f"<b>{label_text} <span style='color:{req_color};'>*</span></b>"
                 if arg.get("dangerous"):
@@ -2776,6 +2824,11 @@ def _format_bash(cmd: list[str]) -> str:
 
 
 _SAFE_TOKEN_RE = re.compile(r'^[A-Za-z0-9_./:=+,@%-]+$')
+# PowerShell needs its own whitelist: in argument mode ',' builds an array
+# (split into separate argv entries) and a leading '@' splats a variable.
+_PS_SAFE_TOKEN_RE = re.compile(r'^[A-Za-z0-9_./:=+%-]+$')
+# PowerShell treats the typographic single quotes as ' too, so all must be doubled
+_PS_SINGLE_QUOTES_RE = re.compile("(['\u2018\u2019\u201a\u201b])")
 
 
 def _format_powershell(cmd: list[str]) -> str:
@@ -2791,14 +2844,14 @@ def _format_powershell(cmd: list[str]) -> str:
     for i, token in enumerate(cmd):
         # Replace newlines — PS single-quoted strings cannot span lines
         token = token.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
-        if _SAFE_TOKEN_RE.match(token):
+        if _PS_SAFE_TOKEN_RE.match(token):
             parts.append(token)
         elif i == 0:
             # Binary needs & prefix and single-quoting
-            escaped = token.replace("'", "''")
+            escaped = _PS_SINGLE_QUOTES_RE.sub(r"\1\1", token)
             parts.append(f"& '{escaped}'")
         else:
-            escaped = token.replace("'", "''")
+            escaped = _PS_SINGLE_QUOTES_RE.sub(r"\1\1", token)
             parts.append(f"'{escaped}'")
     return " ".join(parts)
 
@@ -2820,6 +2873,11 @@ def _format_cmd(cmd: list[str]) -> str:
             parts.append(token)
         else:
             escaped = token.replace('"', '""')
+            # Programs parsing argv with MSVCRT rules read \" as a literal
+            # quote, so double any trailing backslashes before the closing quote
+            m = re.search(r'\\+$', escaped)
+            if m:
+                escaped += m.group(0)
             parts.append(f'"{escaped}"')
     return " ".join(parts)
 
@@ -2955,31 +3013,468 @@ def _bundled_root() -> Path:
     return Path(__file__).parent / "scaffold_data"
 
 
+def _app_data_base() -> Path | None:
+    """Return the per-user application-data folder with no app name on it.
+
+    QStandardPaths.AppDataLocation is <base>/<organization>/<application>.
+    Scaffold never sets either name, so Qt uses the executable's name once a
+    QApplication exists ("scaffold", "python", or "Python" on macOS) and
+    nothing before. Strip whatever Qt appended so the data folder doesn't
+    depend on how Scaffold was launched. If the path doesn't end the way
+    expected, it is returned as is, which keeps the pre-2.13.2 location.
+    """
+    loc = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
+    if not loc:
+        return None
+    base = Path(loc)
+    for part in (QApplication.applicationName(), QApplication.organizationName()):
+        if part and base.name == part:
+            base = base.parent
+    return base
+
+
+# Up to 2.13.1 an installed Scaffold stored data in <base>/<exe name>/Scaffold
+# (see _app_data_base). The name was whatever Qt saw as the executable:
+# "scaffold", "scaffold.py" (python -m scaffold), "Python" (macOS framework
+# builds), and on Windows "python", "pythonw", "python3", "pythonw3",
+# "python3t" and so on, since Qt cuts the name at its first dot there.
+_LEGACY_NAME_RE = re.compile(r"scaffold(\.py)?|pythonw?(\d+(\.\d+)*)?t?", re.IGNORECASE)
+_MIGRATION_MARKER = ".migrated_from_legacy.json"
+_MIGRATION_NOTE = "MOVED.txt"
+_MIGRATION_TRIES = 3  # launches that retry a failed copy before giving up on it
+_legacy_migration_checked = False
+_legacy_migration_pending = False  # a copy failed; _presets_dir holds off seeding
+_FOLD_PATH_CASE = sys.platform in ("darwin", "win32")  # case-insensitive by default
+
+
+def _path_key(path) -> str:
+    """Spelling of a path for comparisons, folded on case-insensitive systems."""
+    s = os.path.normcase(str(path))
+    return s.casefold() if _FOLD_PATH_CASE else s
+
+
+def _legacy_data_roots(base: Path) -> list[Path]:
+    """Existing pre-2.13.2 data folders under base, one per real folder.
+
+    A legacy folder that is itself a symlink is followed: it is the user's
+    own data, and 2.13.1 followed it too.
+    """
+    extras = {QApplication.applicationName(), Path(sys.argv[0]).name if sys.argv else ""} - {""}
+    try:
+        children = sorted(base.iterdir())
+    except OSError:
+        return []
+    roots: list[Path] = []
+    for child in children:
+        if not (_LEGACY_NAME_RE.fullmatch(child.name) or child.name in extras):
+            continue
+        candidate = child / "Scaffold"
+        try:
+            if not candidate.is_dir():
+                continue
+            # Only folders Scaffold itself created count as legacy data.
+            if not any((candidate / sub).exists() for sub in ("presets", "cascades", "tools")):
+                continue
+            if any(os.path.samefile(candidate, seen) for seen in roots):
+                continue  # same folder under another spelling (case-insensitive FS)
+        except OSError:
+            continue
+        roots.append(candidate)
+    return roots
+
+
+def _same_content(a: Path, b: Path) -> bool:
+    """True if a and b hold the same bytes (or are links to the same place)."""
+    try:
+        if a.is_symlink() or b.is_symlink():
+            return a.is_symlink() and b.is_symlink() and os.readlink(a) == os.readlink(b)
+        return filecmp.cmp(a, b, shallow=False)
+    except OSError:
+        return False
+
+
+def _copy_new(src: Path, target: Path) -> bool:
+    """Copy src to target unless target exists. Never replaces anything.
+
+    The copy goes to a private temp file that is hard-linked into place, so
+    a crash can't leave a half-written file under the real name and two
+    Scaffolds starting at once can't clobber each other. Returns False if
+    target already exists. Symlinks are recreated as links, not followed.
+    """
+    if os.path.lexists(target):
+        return False
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if src.is_symlink():
+        try:
+            os.symlink(os.readlink(src), target)
+        except FileExistsError:
+            return False
+        return True
+    fd, tmp = tempfile.mkstemp(prefix=".mig-", suffix=".tmp", dir=target.parent)
+    os.close(fd)
+    try:
+        shutil.copy2(src, tmp)
+        try:
+            os.link(tmp, target)
+        except FileExistsError:
+            return False
+        except OSError:
+            # no hard links here (FAT, some network shares): rename instead
+            if os.path.lexists(target):
+                return False
+            os.replace(tmp, target)
+        return True
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def _conflict_name(name: str, label: str, n: int) -> str:
+    """'scan.json' -> 'scan (from scaffold.py).json', cut to fit 255 bytes."""
+    p = Path(name)
+    stem, suffix = p.stem, p.suffix
+    tag = f" (from {label})" if n == 1 else f" (from {label} {n})"
+    while stem and len(os.fsencode(stem + tag + suffix)) > 255:
+        stem = stem[:-1]
+    return stem + tag + suffix
+
+
+def _is_stock_default(src: Path, rel: str) -> bool:
+    """True if src is an unedited copy of a preset Scaffold ships."""
+    parts = rel.split("/")
+    if len(parts) != 3 or parts[0] != "presets":
+        return False
+    stock = _bundled_root() / "default_presets" / parts[1] / parts[2]
+    return stock.is_file() and _same_content(src, stock)
+
+
+def _place_legacy_file(src: Path, rel: str, label: str, new_root: Path) -> tuple[str | None, bool]:
+    """Copy one legacy file into new_root without replacing anything there.
+
+    Returns (where its content now is, relative to new_root, or None; whether
+    a copy was made). A file matching what is already there isn't copied
+    again. A different version gets its own name, e.g. "scan (from
+    scaffold.py).json", so no version is hidden. The exception is an
+    untouched copy of a bundled default preset, which Scaffold still ships.
+    """
+    if _copy_new(src, new_root / rel):
+        return rel, True
+    if _same_content(src, new_root / rel):
+        return rel, False
+    if _is_stock_default(src, rel):
+        return None, False
+    folder, _, name = rel.rpartition("/")
+    for n in range(1, 100):
+        alt = _conflict_name(name, label, n)
+        alt = f"{folder}/{alt}" if folder else alt
+        if _copy_new(src, new_root / alt):
+            return alt, True
+        if _same_content(src, new_root / alt):
+            return alt, False
+    raise OSError(f"no free name for another version of {rel}")
+
+
+def _plan_legacy_copy(roots: list[Path], errors: dict) -> list[tuple[str, list[tuple[Path, Path]]]]:
+    """Every file under the roots by relative path, newest version first.
+
+    Newest by mtime: copy2 keeps mtimes, so a default seeded by an older
+    Scaffold keeps the package's old date and a preset the user saved wins.
+    Regular files come before symlinks, so a symlinked folder recreated from
+    one root can't redirect files copied from another. Folders that can't
+    be listed are reported in errors[str(root)].
+    """
+    groups: tuple[dict, dict] = ({}, {})  # regular files, symlinks
+    for i, root in enumerate(roots):
+        def _walk_error(e, key=str(root)):
+            errors[key].append(f"{e.filename}: {e.strerror}")
+        for dirpath, dirnames, filenames in os.walk(root, onerror=_walk_error):
+            here = Path(dirpath)
+            # os.walk doesn't descend into symlinked folders; copy the link itself.
+            for name in filenames + [d for d in dirnames if (here / d).is_symlink()]:
+                src = here / name
+                rel = src.relative_to(root).as_posix()
+                if rel in (_MIGRATION_NOTE, _MIGRATION_MARKER):
+                    continue
+                try:
+                    mtime = src.lstat().st_mtime
+                except OSError:
+                    mtime = 0.0
+                groups[src.is_symlink()].setdefault(rel, []).append((-mtime, i, root, src))
+    return [(rel, [(root, src) for _, _, root, src in sorted(g[rel])])
+            for g in groups for rel in sorted(g)]
+
+
+def _read_migration_state(new_root: Path) -> dict:
+    """The marker in new_root: {"roots": {legacy root: record}}, or an empty one."""
+    try:
+        data = json.loads((new_root / _MIGRATION_MARKER).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = None
+    if not isinstance(data, dict) or not isinstance(data.get("roots"), dict):
+        return {"roots": {}}
+    return data
+
+
+def _state_key(state: dict, root: Path) -> str:
+    """The key state["roots"] uses for root, whatever its spelling there."""
+    want = _path_key(root)
+    return next((k for k in state["roots"] if _path_key(k) == want), str(root))
+
+
+def _legacy_root_done(root: Path, state: dict) -> bool:
+    record = state["roots"].get(_state_key(state, root))
+    return os.path.lexists(root / _MIGRATION_NOTE) or (isinstance(record, dict) and record.get("done") is True)
+
+
+def _write_migration_state(new_root: Path, state: dict) -> None:
+    """Write the marker through a private temp file, so concurrent launches can't collide."""
+    fd, tmp = tempfile.mkstemp(prefix=".mig-", suffix=".tmp", dir=new_root)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, new_root / _MIGRATION_MARKER)
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def _write_moved_note(root: Path, new_root: Path, failed: list[str]) -> None:
+    """Leave MOVED.txt in a legacy folder. Never follows a link or replaces a file."""
+    text = (f"Scaffold {__version__} copied the contents of this folder to:\n"
+            f"  {new_root}\n\n"
+            "Scaffold doesn't read this folder anymore. It's kept as a backup;\n"
+            "you can delete it once you've checked your presets and cascades.\n")
+    if failed:
+        text += "\nThese could not be copied and exist only here:\n" + "".join(f"  {f}\n" for f in failed)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(root / _MIGRATION_NOTE, flags, 0o600)
+    except OSError:
+        return  # already there, or a read-only folder; the marker records completion
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def _migrate_legacy_data(new_root: Path, legacy_roots: list[Path]) -> dict | None:
+    """Copy pre-2.13.2 user data into new_root, once per legacy folder.
+
+    Copies (never moves or overwrites) each legacy folder's files, records
+    where each one went in a marker in new_root, then leaves MOVED.txt in
+    the old folder. A folder with MOVED.txt, or marked done, is skipped, so
+    emptying new_root later doesn't bring old data back. If a copy fails the
+    folder is retried on the next launch, up to _MIGRATION_TRIES launches;
+    after that the files that still fail are listed in MOVED.txt and left
+    where they are. Returns a summary, or None if there was nothing to do.
+    """
+    state = _read_migration_state(new_root)
+
+    def _is_new_root(p: Path) -> bool:
+        try:
+            return os.path.samefile(p, new_root)
+        except OSError:
+            return False  # a folder that can't be compared isn't the destination
+
+    todo = [p for p in legacy_roots if not _is_new_root(p) and not _legacy_root_done(p, state)]
+    if not todo:
+        return None
+    summary = {"migrated_from": [str(p) for p in todo], "copied": 0, "conflicts": [],
+               "errors": [], "pending": True}
+    try:
+        new_root.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        summary["errors"] = [f"{new_root}: {e}"]
+        return summary
+    errors: dict[str, list[str]] = {str(p): [] for p in todo}
+    files: dict[str, dict[str, str]] = {str(p): {} for p in todo}
+    for rel, sources in _plan_legacy_copy(todo, errors):
+        for root, src in sources:
+            try:
+                dest, copied = _place_legacy_file(src, rel, root.parent.name, new_root)
+            except OSError as e:
+                errors[str(root)].append(f"{src}: {e}")
+                continue
+            if dest is not None:
+                files[str(root)][rel] = dest
+            summary["copied"] += copied
+            if copied and dest != rel:
+                summary["conflicts"].append(dest)
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+    finished = []
+    for root in todo:
+        key = _state_key(state, root)
+        old = state["roots"].pop(key, None)
+        tries = old.get("tries", 0) if isinstance(old, dict) else 0
+        tries = (tries if isinstance(tries, int) else 0) + 1
+        failed = errors[str(root)]
+        done = not failed or tries >= _MIGRATION_TRIES
+        state["roots"][str(root)] = {"done": done, "tries": tries, "files": files[str(root)],
+                                     "errors": failed, "scaffold_version": __version__, "time": now}
+        if done:
+            finished.append((root, failed))
+        summary["errors"] += failed
+    try:
+        _write_migration_state(new_root, state)
+    except OSError as e:
+        summary["errors"].append(f"{new_root / _MIGRATION_MARKER}: {e}")
+        return summary
+    # MOVED.txt only after the marker holds the record of where files went.
+    for root, failed in finished:
+        _write_moved_note(root, new_root, failed)
+    summary["pending"] = len(finished) < len(todo)
+    return summary
+
+
+def _remap_legacy_path(value, roots: list[tuple[Path, dict]], new_root: Path):
+    """Return value pointed at its copy in new_root, or value unchanged.
+
+    roots pairs each legacy folder with its marker record of where its files
+    went (keys folded with _path_key). A path is repointed only to the copy
+    of that same file, and only if the old file is gone or still has the
+    same content, so a saved path never ends up on a different version.
+    """
+    if not isinstance(value, str) or not value:
+        return value
+    old = Path(value)
+    parts = old.parts
+    if ".." in parts:
+        return value
+    folded = [_path_key(p) for p in parts]
+    for root, files in roots:
+        n = len(root.parts)
+        if len(parts) <= n or folded[:n] != [_path_key(p) for p in root.parts]:
+            continue
+        dest = files.get(_path_key("/".join(parts[n:])))
+        if not isinstance(dest, str) or Path(dest).anchor or ".." in Path(dest).parts:
+            continue  # the marker is a user-editable file; keep results inside new_root
+        moved = new_root / dest
+        if moved.is_file() and (not os.path.lexists(old) or _same_content(old, moved)):
+            return str(moved)
+    return value
+
+
+def _rewrite_legacy_paths(settings: QSettings, state: dict, new_root: Path) -> int:
+    """Repoint saved absolute paths (last tool, recent tools, cascade slots)
+    from legacy data folders to their copies in new_root.
+
+    Uses the marker's record, so it still works after the old folder is
+    deleted. Idempotent, and runs on every launch: an older Scaffold sharing
+    these settings, or a headless run restoring them, can put old paths
+    back. Returns the number of paths changed.
+    """
+    roots = []
+    for key, record in state["roots"].items():
+        moved = record.get("files") if isinstance(record, dict) else None
+        if isinstance(moved, dict):
+            roots.append((Path(key), {_path_key(k): v for k, v in moved.items() if isinstance(k, str)}))
+    if not roots:
+        return 0
+    changed = 0
+    last = settings.value("session/last_tool")
+    new_last = _remap_legacy_path(last, roots, new_root)
+    if new_last != last:
+        settings.setValue("session/last_tool", new_last)
+        changed += 1
+    for key in ("picker/recent_tools", "cascade/slots"):
+        raw = settings.value(key)
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(data, list):
+            continue
+        key_changed = 0
+        if key == "picker/recent_tools":
+            remapped = [_remap_legacy_path(p, roots, new_root) for p in data]
+            key_changed = sum(1 for a, b in zip(data, remapped) if a != b)
+            data = remapped
+        else:
+            for slot in data:
+                if isinstance(slot, dict):
+                    for field in ("tool_path", "preset_path"):
+                        if field in slot:
+                            moved = _remap_legacy_path(slot[field], roots, new_root)
+                            if moved != slot[field]:
+                                slot[field] = moved
+                                key_changed += 1
+        if key_changed:
+            settings.setValue(key, json.dumps(data))
+            changed += key_changed
+    return changed
+
+
+def _run_legacy_migration(base: Path, new_root: Path) -> None:
+    """Copy older data into new_root, repoint saved paths, report on stderr."""
+    global _legacy_migration_pending
+    step, result = "copy", None
+    try:
+        result = _migrate_legacy_data(new_root, _legacy_data_roots(base))
+        step = "rewrite"
+        state = _read_migration_state(new_root)
+        if state["roots"]:
+            _rewrite_legacy_paths(_create_settings(), state, new_root)
+    # broadly defensive — a migration problem must never stop Scaffold from starting; the old data stays where it was, and a failed rewrite keeps the finished copy.
+    except Exception as e:
+        if step == "copy":
+            result = {"copied": 0, "conflicts": [], "errors": [f"migration failed: {e}"], "pending": True}
+        else:
+            print(f"Scaffold: could not update saved paths for {new_root}: {e}", file=sys.stderr)
+    if not result:
+        return
+    _legacy_migration_pending = result["pending"]
+    problems = result["errors"]
+    if problems and result["pending"]:
+        print(f"Scaffold: could not finish copying older data into {new_root} "
+              f"({len(problems)} problem(s)); it will retry next launch: "
+              + "; ".join(problems[:3]), file=sys.stderr)
+    elif problems:
+        print(f"Scaffold: gave up copying {len(problems)} older file(s) after {_MIGRATION_TRIES} "
+              "tries; they are still in the old folder, listed in its MOVED.txt: "
+              + "; ".join(problems[:3]), file=sys.stderr)
+    if result["copied"]:
+        line = (f"Scaffold: copied {result['copied']} file(s) from "
+                f"{', '.join(result['migrated_from'])} to {new_root}; "
+                "the old folder is kept as a backup.")
+        n = len(result["conflicts"])
+        if n == 1:
+            line += " One differed from the file already there, so it was saved as " + result["conflicts"][0] + "."
+        elif n:
+            line += (f" {n} differed from files already there, so they were saved with "
+                     "'(from ...)' added to the name.")
+        print(line, file=sys.stderr)
+
+
 def _user_data_root() -> Path:
     """Return the writable user-data directory (presets/, cascades/, user tools/).
 
     Source / portable mode: scaffold.py's parent directory (today's
     behavior).
 
-    Installed mode: QStandardPaths.AppDataLocation/Scaffold/ — platform
-    standard application data location:
+    Installed mode: <per-user app data>/Scaffold/ — platform standard
+    application data location:
       Linux:   ~/.local/share/Scaffold/
       macOS:   ~/Library/Application Support/Scaffold/
       Windows: %APPDATA%/Scaffold/
+    On first use it copies data left by older versions (which used e.g.
+    ~/.local/share/scaffold/Scaffold) into that folder; see
+    _migrate_legacy_data.
 
     The directory is created if missing.
     """
+    global _legacy_migration_checked
     if _is_installed_mode():
-        loc = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
-        if loc:
-            d = Path(loc)
-            # AppDataLocation only auto-appends QCoreApplication.applicationName()
-            # when it has been set; scaffold doesn't set it at startup, so on a
-            # fresh process the path is the platform root (e.g. %APPDATA%) with
-            # no app suffix. Append "Scaffold" ourselves unless it's already there.
-            if d.name != "Scaffold":
-                d = d / "Scaffold"
+        base = _app_data_base()
+        if base is not None:
+            d = base if base.name == "Scaffold" else base / "Scaffold"
             d.mkdir(parents=True, exist_ok=True)
+            if not _legacy_migration_checked:
+                _legacy_migration_checked = True
+                _run_legacy_migration(base, d)
             return d
     return Path(__file__).parent
 
@@ -3055,9 +3550,11 @@ def _presets_dir(tool_name: str) -> Path:
     if d.exists() and not d.is_dir():
         raise RuntimeError(f"Expected a directory but found a file at: {d}")
     d.mkdir(parents=True, exist_ok=True)
-    # Seed from bundled defaults (skip files the user already has)
+    # Seed from bundled defaults (skip files the user already has). Not while
+    # older data is still being copied in: a default seeded into a gap would
+    # take the name of the user's own edited copy.
     defaults = _bundled_root() / "default_presets" / tool_name
-    if defaults.is_dir():
+    if defaults.is_dir() and not _legacy_migration_pending:
         for src in defaults.glob("*.json"):
             dest = d / src.name
             if not dest.exists():
@@ -3091,20 +3588,17 @@ def _cascade_path_is_safe(base: Path, value: str) -> bool:
         return False
     if p.is_absolute():
         return True
+    # A backslash is a separator on Windows but a filename char on POSIX.
+    # Cascades are shared across platforms, so a value must stay inside
+    # base under both readings.
     try:
-        resolved = (base / value).resolve()
         base_resolved = base.resolve()
+        return all(
+            (base / v).resolve().is_relative_to(base_resolved)
+            for v in (value, str(value).replace("\\", "/"))
+        )
     except (OSError, ValueError):
         return False
-    try:
-        return resolved.is_relative_to(base_resolved)
-    except AttributeError:
-        # Python <3.9 fallback — scaffold targets 3.9+ so this is defensive
-        try:
-            resolved.relative_to(base_resolved)
-            return True
-        except ValueError:
-            return False
 
 
 def _check_cascade_dependencies(cascade_data: dict) -> tuple[list[str], list[str]]:
@@ -3568,6 +4062,9 @@ class ToolPicker(QWidget):
         self.empty_label.setVisible(not has_items)
         self.open_btn.setEnabled(False)
         self.search_bar.clear()
+        # setRowCount keeps each row index's old hidden flag, and clear() emits
+        # nothing when the filter is already empty, so reapply visibility here.
+        self._on_filter("")
         self.search_bar.setFocus()
         self.table.resizeColumnToContents(1)
         _fit_last_column(self.table)
@@ -3676,14 +4173,7 @@ class ToolPicker(QWidget):
         """Toggle folder collapse when a header row is clicked."""
         if row >= len(self._row_map) or self._row_map[row] is not None:
             return  # tool row or out of range
-        item = self.table.item(row, 1)
-        if not item:
-            return
-        text = item.text()
-        for prefix in ("\u25bc ", "\u25b6 "):
-            if text.startswith(prefix):
-                text = text[len(prefix):]
-                break
+        text = self._row_folder[row]
         if text in self._collapsed_folders:
             self._collapsed_folders.discard(text)
         else:
@@ -3698,11 +4188,7 @@ class ToolPicker(QWidget):
             item = self.table.item(row, 1)
             if not item:
                 continue
-            text = item.text()
-            for prefix in ("\u25bc ", "\u25b6 "):
-                if text.startswith(prefix):
-                    text = text[len(prefix):]
-                    break
+            text = self._row_folder[row]
             arrow = "\u25b6" if text in self._collapsed_folders else "\u25bc"
             item.setText(f"{arrow} {text}")
         self._on_filter(self.search_bar.text())
@@ -4016,7 +4502,9 @@ class PresetPicker(QDialog):
             desc = ""
             try:
                 pdata = _read_json_file(p)
-                desc = pdata.get("_description", "") or ""
+                if isinstance(pdata, dict):
+                    d = pdata.get("_description")
+                    desc = d if isinstance(d, str) else ""
             except (json.JSONDecodeError, OSError):
                 pass
             desc_item = QTableWidgetItem(desc)
@@ -4041,6 +4529,8 @@ class PresetPicker(QDialog):
         self.edit_desc_btn.setEnabled(False)
         if self.delete_btn is not None:
             self.delete_btn.setEnabled(False)
+        # Rows were reordered in place; old hidden flags stay on their indices.
+        self._on_filter(self.search_bar.text())
 
     def _on_cell_clicked(self, row: int, col: int) -> None:
         """Toggle favorite star when column 0 is clicked."""
@@ -4162,8 +4652,16 @@ class PresetPicker(QDialog):
         except (OSError, json.JSONDecodeError) as e:
             QMessageBox.warning(self, "Error", f"Cannot read preset file:\n{e}")
             return
+        if not isinstance(data, dict):
+            QMessageBox.warning(
+                self, "Error",
+                f"Cannot read preset file:\n{preset_path.name} is not a JSON object",
+            )
+            return
 
-        current_desc = data.get("_description", "")
+        current_desc = data.get("_description")
+        if not isinstance(current_desc, str):
+            current_desc = ""
         new_desc, ok = QInputDialog.getText(
             self, "Edit Description", "Description:", text=current_desc,
         )
@@ -4181,7 +4679,11 @@ class PresetPicker(QDialog):
         # Update table cell in place
         desc_item = self.table.item(row, 2)
         if desc_item:
-            desc_item.setText(new_desc.strip())
+            desc = new_desc.strip()
+            desc_item.setText(desc)
+            desc_item.setToolTip(
+                f"<p style='max-width:400px;'>{html.escape(desc)}</p>" if desc else ""
+            )
         titles = {"load": "Preset List", "delete": "Delete Preset", "edit": "Edit Preset"}
         self.setWindowTitle(
             f"{titles.get(self.mode, self.mode)}"
@@ -4740,6 +5242,8 @@ class CascadeHistoryDialog(QDialog):
         self.empty_label.setVisible(empty)
         self.clear_btn.setEnabled(not empty)
         self.export_all_btn.setEnabled(not empty)
+        # Rebuilt items start visible; keep an active filter applied.
+        self._on_filter(self.search_bar.text())
         self._on_selection()
 
     # ----- selection & enablement ------------------------------------------
@@ -5022,6 +5526,7 @@ class CascadeHeadlessRunner:
         "cascade/visible",
         "cascade_history/entries",
         "cascade_history/_version",
+        "window/geometry",
     )
 
     def __init__(
@@ -5061,7 +5566,14 @@ class CascadeHeadlessRunner:
     def run(self) -> int:
         app = QApplication.instance() or QApplication(sys.argv[:1])
 
+        # Run any pending data-folder migration first, so the snapshot (and
+        # the restore at exit) holds the repointed paths, not the old ones.
+        _user_data_root()
         self._snapshot_settings()
+        # Don't let the hidden window reopen the GUI's last tool: loading it
+        # would show that tool's crash-recovery prompt and consume the file.
+        # _restore_settings puts the key back.
+        _create_settings().remove("session/last_tool")
 
         prev_suppress = MainWindow._suppress_welcome_dialog
         MainWindow._suppress_welcome_dialog = True
@@ -5303,8 +5815,6 @@ class CascadeHeadlessRunner:
         # (which the cascade dock calls with the full step list right before
         # _chain_cleanup nulls _cascade_steps).  These are restored implicitly
         # when the MainWindow is destroyed at end of run.
-        self._captured_runs: list[dict] = []
-
         def patched_append(entry):
             if isinstance(entry, dict) and entry.get("id"):
                 self._captured_runs.append({
@@ -5325,6 +5835,11 @@ class CascadeHeadlessRunner:
         mw._append_cascade_run = patched_append
         mw._update_cascade_run = patched_update
         mw.cascade_dock._save_cascade = lambda: None
+        # Leave the GUI's crash-recovery files alone: autosave would overwrite
+        # them with headless values, and step loads and closeEvent delete them.
+        mw._autosave_timer.stop()
+        mw._autosave_timer.timeout.disconnect()
+        mw._clear_recovery_file = lambda: None
 
     def _uninstall_patches(self) -> None:
         for target, attr, original in self._patches:
@@ -5553,11 +6068,7 @@ def _parse_run_cascade_args(argv: list[str]) -> tuple[dict, str | None]:
     loop_count: int | None = None
     summary_path: str | None = None
 
-    KNOWN = {"--run-cascade", "--var", "--vars", "--loop", "--summary"}
     i = 0
-    # Skip everything before --run-cascade (already validated by caller)
-    while i < len(argv) and argv[i] != "--run-cascade":
-        i += 1
     while i < len(argv):
         a = argv[i]
         if a == "--run-cascade":
@@ -5574,10 +6085,13 @@ def _parse_run_cascade_args(argv: list[str]) -> tuple[dict, str | None]:
             name, _, value = spec.partition("=")
             if not name:
                 return {}, "--var name cannot be empty"
-            if not _HEADLESS_VAR_NAME_RE.match(name):
+            # Values are keyed by the variable's flag (see CascadeVariableDialog.
+            # get_values), so accept any flag the definition dialog accepts.
+            if not (_HEADLESS_VAR_NAME_RE.match(name) or _CASCADE_VAR_FLAG_RE.match(name)):
                 return {}, (
                     f"--var name {name!r} is invalid "
-                    f"(must match [A-Za-z_][A-Za-z0-9_]*)"
+                    f"(must match [A-Za-z_][A-Za-z0-9_]* or be a cascade "
+                    f"variable flag such as --input)"
                 )
             variables[name] = value
             i += 2
@@ -5585,16 +6099,19 @@ def _parse_run_cascade_args(argv: list[str]) -> tuple[dict, str | None]:
             if i + 1 >= len(argv):
                 return {}, "--vars requires a JSON file path"
             try:
-                loaded = json.loads(Path(argv[i + 1]).read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError) as exc:
+                loaded = json.loads(Path(argv[i + 1]).read_text(encoding="utf-8-sig"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
                 return {}, f"--vars failed to read {argv[i + 1]!r}: {exc}"
             if not isinstance(loaded, dict):
                 return {}, f"--vars file must contain a JSON object (got {type(loaded).__name__})"
             for k, v in loaded.items():
-                if not isinstance(k, str) or not _HEADLESS_VAR_NAME_RE.match(k):
+                if not isinstance(k, str) or not (
+                    _HEADLESS_VAR_NAME_RE.match(k) or _CASCADE_VAR_FLAG_RE.match(k)
+                ):
                     return {}, (
                         f"--vars contains invalid name {k!r} "
-                        f"(must match [A-Za-z_][A-Za-z0-9_]*)"
+                        f"(must match [A-Za-z_][A-Za-z0-9_]* or be a cascade "
+                        f"variable flag such as --input)"
                     )
                 file_vars[k] = "" if v is None else str(v)
             i += 2
@@ -6952,11 +7469,14 @@ def _get_regex_pool():
             # top-level code. We neutralise this by temporarily hiding
             # __main__.__file__ so multiprocessing skips the main-module
             # re-import; the child still unpickles scaffold._regex_worker_entry
-            # via a normal `import scaffold` lookup.
+            # via a normal `import scaffold` lookup.  Skipped when scaffold.py
+            # itself is __main__: the task then pickles as
+            # __main__._regex_worker_entry, which only resolves if the child
+            # re-imports the main module (safe — it has a __main__ guard).
             main_mod = sys.modules.get("__main__")
             saved_file = None
             had_file = False
-            if main_mod is not None:
+            if main_mod is not None and _regex_worker_entry.__module__ != "__main__":
                 had_file = hasattr(main_mod, "__file__")
                 if had_file:
                     saved_file = main_mod.__file__
@@ -7112,7 +7632,9 @@ def extract_captures(
             if not pattern or not isinstance(pattern, str):
                 continue
             stream = stdout_tail if source == "stdout" else stderr_tail
-            group = entry.get("group", 1)
+            # Validation accepts an explicit null as "default group".
+            group = entry.get("group")
+            group = 1 if group is None else group
             success, value, err_type = _bounded_regex_search(pattern, stream, group)
             if not success:
                 errors.append((name, value, err_type))
@@ -7329,6 +7851,9 @@ class CascadeSidebar(QDockWidget):
         self._argv_warned_captures: set[str] = set()
         self._unset_warned_captures: set[str] = set()
         self._chain_paused = False
+        # Bumped on every run start and cleanup so step timers scheduled by
+        # a stopped run can't fire into the next one (see _chain_schedule).
+        self._chain_gen = 0
         # Cascade history tracking
         self._cascade_run_id: str | None = None
         self._cascade_steps: list[dict] = []
@@ -7688,7 +8213,8 @@ class CascadeSidebar(QDockWidget):
             abs_p = Path(p)
             for base in (_user_data_root(), _bundled_root()):
                 try:
-                    return str(abs_p.relative_to(base))
+                    # Forward slashes so Windows-saved cascades load on POSIX.
+                    return abs_p.relative_to(base).as_posix()
                 except ValueError:
                     continue
             return p
@@ -7733,6 +8259,9 @@ class CascadeSidebar(QDockWidget):
                 f"Cascade truncated to {CASCADE_MAX_SLOTS} steps (had {original_len})"
             )
 
+        if not all(isinstance(step, dict) for step in steps):
+            raise ValueError("Each cascade step must be an object")
+
         # Migrate renamed capture sources before validation
         _SOURCE_MIGRATION = {"stdout_full": "stdout_tail", "stderr_full": "stderr_tail"}
         for step in steps:
@@ -7747,16 +8276,6 @@ class CascadeSidebar(QDockWidget):
                 _validate_capture_entry(cap, cascade_vars)
 
         user_base = _user_data_root()
-
-        # Tear down existing slot widgets (hide + detach synchronously to
-        # prevent ghost widgets on Linux where deleteLater timing differs)
-        for info in self._slot_widgets:
-            info["widget"].hide()
-            info["widget"].setParent(None)
-            info["widget"].deleteLater()
-        self._slot_widgets.clear()
-        self._slot_buttons.clear()
-        self._arrow_buttons.clear()
 
         def _resolve_step_path(rel: str) -> str:
             """Resolve a cascade step's relative path. Falls back to user-rooted
@@ -7783,26 +8302,23 @@ class CascadeSidebar(QDockWidget):
                 )
             tool_path = _resolve_step_path(tool_value) if tool_value else None
             preset_path = _resolve_step_path(preset_value) if preset_value else None
+            # Coerce to the spinbox's int range: a non-int would make
+            # setValue raise mid-rebuild, and an out-of-range value would
+            # differ from what the spinbox shows.
+            delay = step.get("delay", 0)
+            if not isinstance(delay, int) or isinstance(delay, bool):
+                delay = 0
+            delay = max(0, min(delay, 3600))
             new_slots.append({
                 "tool_path": tool_path,
                 "preset_path": preset_path,
-                "delay": step.get("delay", 0),
+                "delay": delay,
                 "captures": step.get("captures", []),
             })
 
         # Pad to minimum
         while len(new_slots) < CASCADE_INITIAL_SLOTS:
             new_slots.append(self._new_slot())
-
-        self._slots = new_slots
-        for i in range(len(self._slots)):
-            self._add_slot_widget(i)
-
-        self._loop_enabled = bool(data.get("loop_mode", False))
-        self._style_loop_btn()
-
-        self._stop_on_error = bool(data.get("stop_on_error", False))
-        self._style_stop_on_error_btn()
 
         # Load variables, validating each entry has required keys
         variables = []
@@ -7824,6 +8340,29 @@ class CascadeSidebar(QDockWidget):
             else:
                 var["apply_to"] = "all"
             variables.append(var)
+
+        # Everything above can raise ValueError; only touch the sidebar once
+        # the whole file has validated, so a rejected import leaves it intact.
+        # Tear down existing slot widgets (hide + detach synchronously to
+        # prevent ghost widgets on Linux where deleteLater timing differs)
+        for info in self._slot_widgets:
+            info["widget"].hide()
+            info["widget"].setParent(None)
+            info["widget"].deleteLater()
+        self._slot_widgets.clear()
+        self._slot_buttons.clear()
+        self._arrow_buttons.clear()
+
+        self._slots = new_slots
+        for i in range(len(self._slots)):
+            self._add_slot_widget(i)
+
+        self._loop_enabled = bool(data.get("loop_mode", False))
+        self._style_loop_btn()
+
+        self._stop_on_error = bool(data.get("stop_on_error", False))
+        self._style_stop_on_error_btn()
+
         self._cascade_variables = variables
 
         self._current_cascade_name = data.get("name") or None
@@ -8030,7 +8569,7 @@ class CascadeSidebar(QDockWidget):
         try:
             content = src.read_text(encoding="utf-8")
             Path(dest).write_text(content, encoding="utf-8")
-        except OSError as e:
+        except (OSError, UnicodeDecodeError) as e:
             self._main_window.statusBar().showMessage(f"Export failed: {e}")
             return
         self._main_window.statusBar().showMessage(f"Cascade exported: {src.stem}")
@@ -8280,11 +8819,11 @@ class CascadeSidebar(QDockWidget):
                 # Schema-hash warning (interactive, non-blocking). Mirrors
                 # _on_load_preset UI semantics — slot click is human-initiated,
                 # so warn via status bar rather than halt like _chain_advance
-                # (unattended). Absent _schema_hash is legacy-allowed.
+                # (unattended). An absent or placeholder _schema_hash is legacy-allowed.
                 preset_name = Path(preset_path).stem
                 saved_hash = preset_data.get("_schema_hash")
                 hash_mismatch = False
-                if saved_hash is not None:
+                if saved_hash not in (None, PRESET_HASH_UNKNOWN):
                     current_hash = schema_hash(self._main_window.data)
                     if saved_hash != current_hash:
                         hash_mismatch = True
@@ -8404,6 +8943,7 @@ class CascadeSidebar(QDockWidget):
         self._chain_current = -1
         self._chain_loop_count = 0
         self._chain_state = CHAIN_LOADING
+        self._chain_gen += 1
 
         # Record cascade run start
         self._cascade_run_loop_index = 0
@@ -8601,6 +9141,19 @@ class CascadeSidebar(QDockWidget):
         if new_text != original:
             form.extra_flags_edit.setPlainText(new_text)
 
+    def _chain_schedule(self, ms: int, step_fn) -> None:
+        """Run step_fn after ms unless this chain run has ended meanwhile."""
+        gen = self._chain_gen
+
+        def _fire():
+            if gen == self._chain_gen:
+                step_fn()
+
+        # Two-arg form: the (msec, context, functor) overload needs PySide6
+        # 6.6+. closeEvent's _chain_cleanup bumps the generation, so a timer
+        # outliving the window does nothing.
+        QTimer.singleShot(ms, _fire)
+
     def _chain_advance(self) -> None:
         """Load and run the next cascade step in the chain."""
         if self._chain_state == CHAIN_IDLE:
@@ -8641,7 +9194,7 @@ class CascadeSidebar(QDockWidget):
                 last_slot_index = self._chain_queue[-1]
                 delay_secs = self._slots[last_slot_index].get("delay", 0)
                 delay_ms = max(delay_secs * 1000, 300)
-                QTimer.singleShot(delay_ms, self._chain_advance)
+                self._chain_schedule(delay_ms, self._chain_advance)
                 return
             else:
                 runs = self._chain_loop_count + 1
@@ -8670,10 +9223,13 @@ class CascadeSidebar(QDockWidget):
         # Preserve output from previous chain steps
         self._main_window._chain_preserve_output = True
         if self._chain_current == 0 and self._chain_loop_count > 0 and hasattr(self._main_window, 'output'):
-            sep = f"\n{'\u2550' * 60}\n  Loop {self._chain_loop_count + 1}\n{'\u2550' * 60}\n"
+            # Built outside the f-string: a backslash inside an f-string
+            # expression is a SyntaxError before Python 3.12.
+            bar = "\u2550" * 60
+            sep = f"\n{bar}\n  Loop {self._chain_loop_count + 1}\n{bar}\n"
             self._main_window._append_output(sep, "gray")
         elif self._chain_current > 0 and hasattr(self._main_window, 'output'):
-            sep = f"\n{'\u2500' * 60}\n"
+            sep = "\n" + "\u2500" * 60 + "\n"
             self._main_window._append_output(sep, "gray")
 
         # Clear stale recovery file before loading next tool
@@ -8787,9 +9343,9 @@ class CascadeSidebar(QDockWidget):
                 # Schema-hash gate: cascades run unattended, so a stale preset
                 # would silently produce a wrong command. UI mode (line ~8931)
                 # warns instead — correct there, since a human can react.
-                # Absent _schema_hash is treated as legacy (mirrors UI guard).
+                # An absent or placeholder _schema_hash is treated as legacy (mirrors UI guard).
                 saved_hash = preset_data.get("_schema_hash")
-                if saved_hash is not None:
+                if saved_hash not in (None, PRESET_HASH_UNKNOWN):
                     current_hash = schema_hash(self._main_window.data)
                     if saved_hash != current_hash:
                         preset_name = Path(preset_path).stem
@@ -8904,7 +9460,7 @@ class CascadeSidebar(QDockWidget):
                 return  # multi-token halt fired
 
         # Small delay to let the form render before executing
-        QTimer.singleShot(150, self._chain_execute_current)
+        self._chain_schedule(150, self._chain_execute_current)
 
     def _chain_execute_current(self) -> None:
         """Execute the currently loaded tool after form has rendered."""
@@ -9019,7 +9575,7 @@ class CascadeSidebar(QDockWidget):
                             self._main_window.statusBar().showMessage(
                                 f"Cascade: waiting {delay_secs}s before step {next_step}..."
                             )
-                        QTimer.singleShot(delay_ms, self._chain_advance)
+                        self._chain_schedule(delay_ms, self._chain_advance)
                 # broadly defensive — wraps the full Qt on-finished callback body (~90 lines across multiple helpers); narrowing would risk leaving the cascade in a non-idle state on an unanticipated error.
                 except Exception as _wrap_exc:
                     # Restore original handler so main window is usable
@@ -9053,13 +9609,7 @@ class CascadeSidebar(QDockWidget):
             # Record step start time for cascade history
             self._cascade_step_start = time.time()
 
-            # Start the command
-            self._main_window._on_run_stop()
-
-            # If process failed to even start (e.g. binary not found),
-            # _on_error fires and sets process=None without _on_finished.
-            # Detect this and clean up.
-            if self._main_window.process is None and self._chain_state == CHAIN_RUNNING:
+            def _chain_failed_to_start():
                 # Record the failed step in cascade history
                 if self._cascade_run_id is not None:
                     _fidx = self._chain_queue[self._chain_current]
@@ -9069,6 +9619,30 @@ class CascadeSidebar(QDockWidget):
                     ))
                 self._cascade_finish_status = "error_halted"
                 self._chain_cleanup("Cascade stopped: process failed to start")
+
+            # Start the command
+            self._main_window._on_run_stop()
+
+            # If process failed to even start (e.g. binary not found),
+            # _on_error fires and sets process=None without _on_finished.
+            # On Windows errorOccurred(FailedToStart) is emitted inside
+            # start(); on Linux/macOS it arrives on a later event-loop turn,
+            # so also watch the new process for it.
+            _proc = self._main_window.process
+            if _proc is None and self._chain_state == CHAIN_RUNNING:
+                _chain_failed_to_start()
+            elif isinstance(_proc, QProcess) and self._chain_state == CHAIN_RUNNING:
+                _gen, _step = self._chain_gen, self._chain_current
+
+                def _on_async_start_error(error):
+                    # Connected after MainWindow._on_error, so runs after it.
+                    if (error == QProcess.ProcessError.FailedToStart
+                            and _gen == self._chain_gen
+                            and _step == self._chain_current
+                            and self._chain_state == CHAIN_RUNNING):
+                        _chain_failed_to_start()
+
+                _proc.errorOccurred.connect(_on_async_start_error)
         # broadly defensive — wraps the entire cascade-step setup/launch path (closure definition, handler install, process start, failed-start cleanup); narrowing would risk stranding the chain on an unexpected error class.
         except Exception as e:
             try:
@@ -9093,7 +9667,7 @@ class CascadeSidebar(QDockWidget):
             self._chain_state = CHAIN_LOADING
             self.pause_chain_btn.setText("Pause")
             self._main_window.statusBar().showMessage("Cascade resumed")
-            QTimer.singleShot(100, self._chain_advance)
+            self._chain_schedule(100, self._chain_advance)
 
     def _build_chain_step_record(
         self,
@@ -9169,6 +9743,7 @@ class CascadeSidebar(QDockWidget):
         # None at the start of each new run at _on_run_chain (~line 6900).
 
         self._chain_state = CHAIN_IDLE
+        self._chain_gen += 1
         self._chain_paused = False
         self._chain_queue = []
         self._chain_current = -1
@@ -9238,8 +9813,8 @@ class CascadeSidebar(QDockWidget):
         _border = DARK_COLORS["border"] if _dark_mode else "#c0c0c0"
         self._chain_qss = f"QPushButton {{ border: 1px solid {_border}; {self._chain_btn_body} }}"
         self._refresh_button_labels()
-        self._clear_slot_highlights()
         self._style_loop_btn()
+        self._style_stop_on_error_btn()
         dim_color = DARK_COLORS["text_dim"] if _dark_mode else "#666666"
         for info in self._slot_widgets:
             info["delay_label"].setStyleSheet(f"font-size: 11px; color: {dim_color};")
@@ -9317,9 +9892,13 @@ class MainWindow(QMainWindow):
         # Restore geometry
         self.setMinimumSize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         geo = self.settings.value("window/geometry")
+        restored = False
         if geo:
-            self.restoreGeometry(geo)
-        else:
+            try:
+                restored = self.restoreGeometry(geo)
+            except TypeError:
+                pass  # non-bytes value, e.g. a hand-edited portable scaffold.ini
+        if not restored:
             self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
 
         # Drag and drop
@@ -10082,7 +10661,6 @@ class MainWindow(QMainWindow):
         # Find all matches (case-insensitive)
         doc = self.output.document()
         cursor = QTextCursor(doc)
-        flags = doc.FindFlag(0)  # no flags = forward, case-insensitive by default
         # QTextDocument.find is case-insensitive by default when no FindCaseSensitively flag is set
         while True:
             cursor = doc.find(query, cursor)
@@ -10192,7 +10770,7 @@ class MainWindow(QMainWindow):
         for f in tmp.glob(f"scaffold_recovery_{_user_id()}_*.json"):
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
-                ts = data.get("_recovery_timestamp", 0)
+                ts = data.get("_recovery_timestamp", 0) if isinstance(data, dict) else None
                 # Defensive: non-numeric (or bool) timestamp — treat as stale.
                 # isinstance(True, int) is True in Python, so check bool first.
                 if type(ts) is bool or not isinstance(ts, (int, float)):
@@ -10200,7 +10778,7 @@ class MainWindow(QMainWindow):
                     continue
                 if (time.time() - ts) > AUTOSAVE_EXPIRY_HOURS * 3600:
                     f.unlink()
-            except (OSError, json.JSONDecodeError):
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
                 try:
                     f.unlink()
                 except OSError:
@@ -10239,7 +10817,14 @@ class MainWindow(QMainWindow):
         if path is None:
             return
         try:
-            _atomic_write_json(path, values)
+            # Owner-only umask so the temp file is never world-readable in the
+            # shared temp dir before the chmod below (the chmod still covers
+            # a pre-existing file, whose mode the umask cannot change).
+            old_umask = os.umask(0o077)
+            try:
+                _atomic_write_json(path, values)
+            finally:
+                os.umask(old_umask)
             try:
                 os.chmod(path, 0o600)
             except OSError:
@@ -10272,7 +10857,7 @@ class MainWindow(QMainWindow):
             return
         try:
             recovery_data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             try:
                 path.unlink(missing_ok=True)
             except OSError:
@@ -10476,6 +11061,11 @@ class MainWindow(QMainWindow):
         except RuntimeError as e:
             self._show_load_error(str(e))
             return
+        if not isinstance(data, dict):
+            self._show_load_error(
+                f"Invalid tool schema: top-level JSON must be an object, got {type(data).__name__}"
+            )
+            return
 
         # Three-tier _format check: correct -> silent, missing -> warn, wrong -> reject
         fmt = data.get("_format")
@@ -10566,6 +11156,8 @@ class MainWindow(QMainWindow):
         self._copy_password_choice = None
         # Kill any running process
         self._elapsed_timer.stop()
+        self._timeout_timer.stop()
+        self._progress_label.setText("")
         self._teardown_process()
 
         # Preserve output content during chain execution
@@ -10820,8 +11412,16 @@ class MainWindow(QMainWindow):
 
     def _on_back(self) -> None:
         """Return to the tool picker, stopping any running process first."""
-        # Kill any running process before going back
+        # Kill any running process before going back. _teardown_process does
+        # no UI reset and the picker's Back reuses this form, so reset here.
         self._teardown_process()
+        self._elapsed_timer.stop()
+        self._timeout_timer.stop()
+        self._progress_label.setText("")
+        if hasattr(self, "run_btn"):
+            self.run_btn.setText("Run")
+            self._style_run_btn()
+            self._update_preview()
         self._show_picker()
 
     def _on_custom_paths(self) -> None:
@@ -11005,7 +11605,7 @@ class MainWindow(QMainWindow):
 
         # Check schema hash for version mismatch
         saved_hash = preset.get("_schema_hash")
-        if saved_hash is not None and saved_hash != schema_hash(self.data):
+        if saved_hash not in (None, PRESET_HASH_UNKNOWN) and saved_hash != schema_hash(self.data):
             self.statusBar().showMessage(
                 f"Preset loaded: {name} \u2014 Note: This preset was saved with a different "
                 "schema version. Some fields may not have loaded."
@@ -11166,7 +11766,7 @@ class MainWindow(QMainWindow):
         try:
             content = preset_path.read_text(encoding="utf-8")
             _atomic_write_json(Path(dest), json.loads(content))
-        except (OSError, json.JSONDecodeError) as e:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
             self.statusBar().showMessage(f"Export failed: {e}")
             return
         self.statusBar().showMessage(f"Preset exported: {name}")
@@ -11189,13 +11789,11 @@ class MainWindow(QMainWindow):
     def _update_preview(self) -> None:
         """Rebuild the command preview and toggle Run button availability."""
         missing = self.form.validate_required()
-        cmd, display = self.form.build_command()
+        cmd, _ = self.form.build_command()
         extra_count = len(self.form.get_extra_flags())
         if self.form.is_elevation_checked():
             elev_cmd, _ = get_elevation_command(cmd)
-            extra_count = len(self.form.get_extra_flags())
             cmd = elev_cmd
-            display = _format_display(elev_cmd)
         sub = self.form.sub_combo.currentData() if self.form.sub_combo else None
         masked_cmd = self.form._mask_passwords_for_display(cmd)
         html = _colored_preview_html(masked_cmd, extra_count, subcommand=sub)
@@ -11376,13 +11974,6 @@ class MainWindow(QMainWindow):
         """Escalate to SIGKILL if the process did not exit after SIGTERM."""
         if not self.process or self.process.state() == QProcess.ProcessState.NotRunning:
             return
-        if not self._elevated_run and sys.platform != "win32":
-            pid = self.process.processId()
-            if pid > 0:
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError, OSError):
-                    pass
         self.process.kill()
 
     def _teardown_process(self) -> None:
@@ -11464,9 +12055,16 @@ class MainWindow(QMainWindow):
             )
             return
 
-        cmd, display = self.form.build_command()
+        cmd, _ = self.form.build_command()
         if not cmd:
             return
+
+        # QProcess looks a bare program name up on the parent's PATH, not on
+        # the child env set below, so resolve custom-PATH binaries here.
+        if _get_custom_paths():
+            resolved = shutil.which(cmd[0], path=_extended_path())
+            if resolved:
+                cmd = [resolved] + cmd[1:]
 
         # Handle elevation
         self._elevated_run = False
@@ -11476,7 +12074,6 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Elevation Not Available", error)
                 return
             cmd = elev_cmd
-            display = _format_display(cmd)
             self._elevated_run = True
 
         program = cmd[0]
@@ -11594,7 +12191,7 @@ class MainWindow(QMainWindow):
         if self._error_reported:
             # _on_error already handled UI and recorded history; just
             # clear process and return — no double-record needed.
-            self.process = None
+            self._release_process()
             return
         elapsed_str = ""
         if self._run_start_time is not None:
@@ -11631,7 +12228,19 @@ class MainWindow(QMainWindow):
         self.run_btn.setText("Run")
         self._style_run_btn()
         self._update_preview()
+        self._release_process()
+
+    def _release_process(self) -> None:
+        """Drop the finished QProcess and schedule its deletion.
+
+        Without deleteLater every run would leave a dead QProcess parented
+        to the window. Deletion is deferred, so this is safe from inside
+        the process's own finished/errorOccurred handlers.
+        """
+        proc = self.process
         self.process = None
+        if proc is not None:
+            proc.deleteLater()
 
     def _on_error(self, error) -> None:
         """Handle QProcess errors, printing a descriptive message to the output panel."""
@@ -11653,6 +12262,8 @@ class MainWindow(QMainWindow):
             QProcess.ProcessError.ReadError: "Read error communicating with process.",
         }
         msg = error_messages.get(error, f"Unknown process error ({error}).")
+        # Flush first: on a crash Qt has already buffered the last output.
+        self._flush_output()
         self._append_output(f"\n--- {msg} ---\n", COLOR_ERR)
         self.statusBar().showMessage(msg)
         # Record history for the errored run
@@ -11671,11 +12282,10 @@ class MainWindow(QMainWindow):
         # Clean up timers and process — needed for FailedToStart where
         # _on_finished() is never called.  Harmless double-set for Crashed.
         self._timeout_timer.stop()
-        self._flush_output()
         self._elapsed_timer.stop()
         self._force_kill_timer.stop()
         self._run_start_time = None
-        self.process = None
+        self._release_process()
 
     # ------------------------------------------------------------------
     # Command history
@@ -11849,7 +12459,10 @@ class MainWindow(QMainWindow):
             tool_path = step.get("tool_path")
             if not tool_path or not Path(tool_path).exists():
                 return  # dialog already warned
+            prev_data = self.data
             self._load_tool_path(tool_path)
+            if self.data is prev_data:
+                return  # load failed or was cancelled; don't apply to the old form
             preset_path = step.get("preset_path")
             if preset_path and Path(preset_path).exists():
                 try:
@@ -11982,12 +12595,14 @@ def main() -> None:
             "  python scaffold.py --help                 Show this help and exit\n"
             "\n"
             "  python scaffold.py --run-cascade <cascade.json>  Run a saved cascade headlessly\n"
-            "                     [--var name=value]              Supply a variable (repeatable)\n"
+            "                     [--var name=value]              Supply a variable (repeatable); name is the\n"
+"                                                     variable's flag, e.g. --var --input=a.txt\n"
             "                     [--vars file.json]              Load variables from JSON file\n"
             "                     [--loop N]                      Run the cascade N times (1-1000); required\n"
             "                                                     when the cascade's saved loop_mode is on,\n"
             "                                                     otherwise defaults to 1\n"
             "                     [--summary path]                Write JSON summary to path\n"
+"                     Options may appear in any order.\n"
             "\n"
             "Portable mode:  Place portable.txt next to scaffold.py to store settings locally\n"
         )
@@ -12051,7 +12666,7 @@ def main() -> None:
             _peek = json.loads(Path(parsed["cascade_path"]).read_text(encoding="utf-8"))
             if isinstance(_peek, dict) and _peek.get("_format") == "scaffold_cascade":
                 loop_mode_in_file = bool(_peek.get("loop_mode", False))
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             pass
 
         loop_explicit = parsed["loop_count"] is not None

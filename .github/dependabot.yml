@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # Workflow actions are pinned to commit SHAs; Dependabot bumps the SHA and
+  # the version comment together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Hash-pinned CI requirements (test deps and tools). The min/ folder is
+  # deliberately not listed: it pins the oldest PySide6 pyproject allows.
+  - package-ecosystem: pip
+    directory: /.github/requirements
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      python:
+        patterns: ["*"]

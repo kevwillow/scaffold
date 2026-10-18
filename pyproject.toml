@@ -4,14 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scaffold-gui"
-version = "2.13.1"
+version = "2.13.2"
 description = "Schema-driven GUI generator for any CLI tool"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Kev" }]
 requires-python = ">=3.10"
 dependencies = [
-    "PySide6>=6.5",
+    # PySide6 6.12.0 drops a reference to None/True on every signal delivered
+    # to a Python slot (PYSIDE-3477), which aborts the interpreter on Python
+    # 3.11 and older. 3.12+ is immune because those objects are immortal there.
+    "PySide6>=6.5,<6.12; python_version < '3.12'",
+    "PySide6>=6.5; python_version >= '3.12'",
 ]
 keywords = ["cli", "gui", "wrapper", "schema", "pyside6", "qt", "security"]
 classifiers = [
@@ -27,6 +31,8 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Utilities",
 ]
 
