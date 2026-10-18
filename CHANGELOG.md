@@ -3,7 +3,7 @@
 All notable changes to Scaffold are documented here.
 
 
-## [Unreleased]
+## [v2.13.2] — Unreleased
 
 Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixes that were each reproduced against v2.13.1 before changing code. Every behavioral fix has a regression check in new `test_functional.py` sections §211 to §216, and each check was confirmed to fail on v2.13.1. Three v2.13.1 tests that were red on Linux/macOS (§107a to §107c, `test_security` 12b) now pass there.
 
