@@ -31534,8 +31534,10 @@ try:
           "220d: the marker records where the legacy version went")
 
     # --- 220e: an interrupted copy finishes on the next run ---------------
+    # (Tests that list the whole new folder use "python": on macOS/Windows a
+    # "scaffold" legacy folder is nested inside "Scaffold", see 220h.)
     _s220_new = _s220_tmp / "e" / "Scaffold"
-    _s220_old = _s220_make_legacy(_s220_tmp / "e")
+    _s220_old = _s220_make_legacy(_s220_tmp / "e", "python")
     (_s220_new / "tools").mkdir(parents=True)
     shutil.copy2(_s220_old / "tools" / "t.json", _s220_new / "tools" / "t.json")  # half done, no marker
     _s220_sum = scaffold._migrate_legacy_data(_s220_new, [_s220_old])
@@ -31852,7 +31854,7 @@ try:
 
     # --- 220q: per-folder completion --------------------------------------
     _S220Paths.base = str(_s220_tmp / "q")
-    _s220_a = _s220_make_legacy(_S220Paths.base, "scaffold")
+    _s220_a = _s220_make_legacy(_S220Paths.base, "python")
     _s220_new, _ = _s220_launch()
     _s220_b = _s220_make_legacy(_S220Paths.base, "scaffold.py")  # appears after the first migration
     (_s220_b / "tools" / "b_only.json").write_text('{"tool": "b"}', encoding="utf-8")
@@ -31867,7 +31869,7 @@ try:
     for _s220_child in _s220_new.iterdir():  # the user resets Scaffold by emptying its folder
         shutil.rmtree(_s220_child) if _s220_child.is_dir() else _s220_child.unlink()
     _s220_new, _s220_err = _s220_launch()
-    check(_s220_files(_s220_new) == [] and _s220_err == "",
+    check(_s220_files(_s220_new) == [] and _s220_err == "" and _s220_files(_s220_a),
           "220q: emptying the data folder doesn't bring the old data back")
     _S220Paths.base = str(_s220_tmp / "q_ro")
     _s220_old = _s220_make_legacy(_S220Paths.base)
