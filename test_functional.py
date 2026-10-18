@@ -24985,7 +24985,10 @@ for _s189_func, _s189_pat in _s189_expected_narrows.items():
 # teardown_process cleanup (Qt-side errors), the SIGINT handler (must
 # never raise), and the _on_run_chain wrapper (cascade dock touches
 # QProcess/file I/O/validation across many subsystems).  Ceiling
-# raised from 11 to 15 to accommodate. Parse via AST to be robust.
+# raised from 11 to 15 to accommodate. v2.13.2 adds one for the
+# installed-mode data-folder migration (_run_legacy_migration), which
+# copies files and rewrites settings at startup and must never stop
+# Scaffold from starting; ceiling 16. Parse via AST to be robust.
 import ast as _s189_ast
 _s189_tree = _s189_ast.parse(_s189_src)
 _s189_broad = 0
@@ -25001,9 +25004,9 @@ for _s189_node in _s189_ast.walk(_s189_tree):
             for x in t.elts
         ):
             _s189_broad += 1
-check(_s189_broad <= 15,
-      f"189c: at most 15 broad-except catches remain "
-      f"(got {_s189_broad}; v2.13.0 raised from 11 to 15 for headless runner)")
+check(_s189_broad <= 16,
+      f"189c: at most 16 broad-except catches remain "
+      f"(got {_s189_broad}; 15 since v2.13.0's headless runner, +1 for the data-folder migration)")
 check(_s189_broad >= 9,
       f"189c: at least 9 broad-except catches remain "
       f"(got {_s189_broad}; Group C sites must stay broad)")

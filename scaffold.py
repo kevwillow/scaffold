@@ -3411,18 +3411,19 @@ def _rewrite_legacy_paths(settings: QSettings, state: dict, new_root: Path) -> i
 def _run_legacy_migration(base: Path, new_root: Path) -> None:
     """Copy older data into new_root, repoint saved paths, report on stderr."""
     global _legacy_migration_pending
-    # broadly defensive: a migration problem must never stop Scaffold from
-    # starting; the old data stays where it was.
+    step, result = "copy", None
     try:
         result = _migrate_legacy_data(new_root, _legacy_data_roots(base))
-    except Exception as e:
-        result = {"copied": 0, "conflicts": [], "errors": [f"migration failed: {e}"], "pending": True}
-    try:
+        step = "rewrite"
         state = _read_migration_state(new_root)
         if state["roots"]:
             _rewrite_legacy_paths(_create_settings(), state, new_root)
+    # broadly defensive — a migration problem must never stop Scaffold from starting; the old data stays where it was, and a failed rewrite keeps the finished copy.
     except Exception as e:
-        print(f"Scaffold: could not update saved paths for {new_root}: {e}", file=sys.stderr)
+        if step == "copy":
+            result = {"copied": 0, "conflicts": [], "errors": [f"migration failed: {e}"], "pending": True}
+        else:
+            print(f"Scaffold: could not update saved paths for {new_root}: {e}", file=sys.stderr)
     if not result:
         return
     _legacy_migration_pending = result["pending"]
