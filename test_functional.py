@@ -29982,6 +29982,19 @@ _s212_cmdfmt = scaffold._format_cmd(["nmap", "-p", "22,80", "u@h"])
 check(_s212_cmdfmt == "nmap -p 22,80 u@h",
       f"212c: CMD whitelist unchanged for , and @: {_s212_cmdfmt!r}")
 
+# 212g: PowerShell bare-token hazards are quoted. A bare "--%" is PS's
+# stop-parsing token (turns off quoting for the rest of the line) and a
+# bare "-x.y" is split at the first dot by the native-argument parser, so
+# "-Dprop.name=1" would reach the program as "-Dprop" ".name=1". Both are
+# now single-quoted. Verified against real pwsh 7 in review.
+check(scaffold._format_powershell(["tool", "--%", "x"]) == "tool '--%' x",
+      f"212g: bare --% is quoted so it can't stop PS parsing (got {scaffold._format_powershell(['tool', '--%', 'x'])!r})")
+_s212_dot = scaffold._format_powershell(["java", "-Dprop.name=value", "-v", "./a.b"])
+check(_s212_dot == "java '-Dprop.name=value' -v ./a.b",
+      f"212g: a dashed token with a dot is quoted; a plain path is not (got {_s212_dot!r})")
+check(scaffold._format_powershell(["t", "-n", "--opt", "a.b", "1.5"]) == "t -n --opt a.b 1.5",
+      "212g: dashless dotted tokens and bare flags stay unquoted")
+
 # 212d: group exclusivity re-evaluates the unchecked sibling's dependents
 _s212_grp_tool = scaffold.normalize_tool({
     "tool": "t", "binary": "t", "description": "x",

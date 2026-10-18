@@ -1,0 +1,210 @@
+# mypy errors that existed when type checking was added; see
+# .github/scripts/check_types.py. Only ever remove lines from this file.
+scaffold.py: [arg-type] Argument 1 to "Path" has incompatible type "str | None"; expected "str | PathLike[str]"
+scaffold.py: [arg-type] Argument 1 to "extend" of "list" has incompatible type "int | str | list[Any]"; expected "Iterable[Any]"
+scaffold.py: [arg-type] Argument 1 to "get" of "dict" has incompatible type "Any | None"; expected "str"
+scaffold.py: [arg-type] Argument 1 to "join" of "str" has incompatible type "int | str | list[Any]"; expected "Iterable[str]"
+scaffold.py: [arg-type] Argument 1 to "loads" has incompatible type "object"; expected "str | bytes | bytearray"
+scaffold.py: [arg-type] Argument 1 to "loads" has incompatible type "object"; expected "str | bytes | bytearray"
+scaffold.py: [arg-type] Argument 1 to "loads" has incompatible type "object"; expected "str | bytes | bytearray"
+scaffold.py: [arg-type] Argument 1 to "loads" has incompatible type "object"; expected "str | bytes | bytearray"
+scaffold.py: [arg-type] Argument 1 to "scrollToItem" of "QTableWidget" has incompatible type "QTableWidgetItem | None"; expected "QTableWidgetItem"
+scaffold.py: [arg-type] Argument 1 to "scrollToItem" of "QTableWidget" has incompatible type "QTableWidgetItem | None"; expected "QTableWidgetItem"
+scaffold.py: [arg-type] Argument 1 to "scrollToItem" of "QTableWidget" has incompatible type "QTableWidgetItem | None"; expected "QTableWidgetItem"
+scaffold.py: [arg-type] Argument 1 to "scrollToItem" of "QTableWidget" has incompatible type "QTableWidgetItem | None"; expected "QTableWidgetItem"
+scaffold.py: [arg-type] Argument 1 to "setChecked" of "QAction" has incompatible type "object"; expected "bool"
+scaffold.py: [arg-type] Argument 1 to "setMaximum" of "QSpinBox" has incompatible type "int | float"; expected "int"
+scaffold.py: [arg-type] Argument 1 to "setMinimum" of "QSpinBox" has incompatible type "int | float"; expected "int"
+scaffold.py: [arg-type] Argument 1 to "setMinimum" of "QSpinBox" has incompatible type "int | float"; expected "int"
+scaffold.py: [arg-type] Argument 1 to "setRange" of "QSpinBox" has incompatible type "float"; expected "int"
+scaffold.py: [arg-type] Argument 1 to "setRange" of "QSpinBox" has incompatible type "int | float"; expected "int"
+scaffold.py: [arg-type] Argument 1 to "setValue" of "QSpinBox" has incompatible type "float"; expected "int"
+scaffold.py: [arg-type] Argument 1 to "setValue" of "QSpinBox" has incompatible type "int | float"; expected "int"
+scaffold.py: [arg-type] Argument 1 to "setValue" of "QSpinBox" has incompatible type "int | float"; expected "int"
+scaffold.py: [arg-type] Argument 1 to "setValue" of "QSpinBox" has incompatible type "int | float"; expected "int"
+scaffold.py: [arg-type] Argument 1 to "setVisible" of "QWidget" has incompatible type "object"; expected "bool"
+scaffold.py: [arg-type] Argument 2 to "setRange" of "QSpinBox" has incompatible type "float"; expected "int"
+scaffold.py: [assignment] Incompatible default for parameter "checked" (default has type "None", parameter has type "bool")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "Callable[[QResizeEvent], tuple[None, None]]", variable has type "Callable[[QResizeEvent], None]")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "Callable[[QResizeEvent], tuple[None, None]]", variable has type "Callable[[QResizeEvent], None]")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "Callable[[QResizeEvent], tuple[None, None]]", variable has type "Callable[[QResizeEvent], None]")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "Callable[[QResizeEvent], tuple[None, None]]", variable has type "Callable[[QResizeEvent], None]")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "Callable[[QResizeEvent], tuple[None, None]]", variable has type "Callable[[QResizeEvent], None]")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "Callable[[QResizeEvent], tuple[None, None]]", variable has type "Callable[[QResizeEvent], None]")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "MainWindow", variable has type "None")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "None", variable has type "QPushButton")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "None", variable has type "list[dict[str, Any]]")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "QAbstractSpinBox", variable has type "QCheckBox")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "QAbstractSpinBox", variable has type "QCheckBox")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "QComboBox", variable has type "QCheckBox")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "QComboBox", variable has type "QCheckBox")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "QDoubleSpinBox", variable has type "QSpinBox")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "QLabel", variable has type "QCheckBox")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "QLineEdit", variable has type "QCheckBox")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "QLineEdit", variable has type "QSpinBox")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "QListWidget", variable has type "QCheckBox")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "QPlainTextEdit", variable has type "QCheckBox")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "QTreeWidgetItem | None", variable has type "QTreeWidgetItem")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "QTreeWidgetItem | None", variable has type "QTreeWidgetItem")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "QTreeWidgetItem | None", variable has type "QTreeWidgetItem")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "QWidget", variable has type "QCheckBox")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "QWidget", variable has type "QCheckBox")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "QWidget", variable has type "QCheckBox")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "bool", target has type "str")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "float", target has type "int")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "float", variable has type "int")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "int | str | list[Any]", target has type "str")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "int | str | list[Any]", target has type "str")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "list[str] | None", variable has type "list[str]")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "list[str] | None", variable has type "list[str]")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "object", variable has type "str")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "str | None", target has type "str")
+scaffold.py: [assignment] Incompatible types in assignment (expression has type "str | None", variable has type "str")
+scaffold.py: [attr-defined] "None" has no attribute "_append_cascade_run"
+scaffold.py: [attr-defined] "None" has no attribute "_autosave_timer"
+scaffold.py: [attr-defined] "None" has no attribute "_autosave_timer"
+scaffold.py: [attr-defined] "None" has no attribute "_clear_recovery_file"
+scaffold.py: [attr-defined] "None" has no attribute "_last_run_stderr"
+scaffold.py: [attr-defined] "None" has no attribute "_last_run_stdout"
+scaffold.py: [attr-defined] "None" has no attribute "_on_finished"
+scaffold.py: [attr-defined] "None" has no attribute "_on_finished"
+scaffold.py: [attr-defined] "None" has no attribute "_on_stderr_ready"
+scaffold.py: [attr-defined] "None" has no attribute "_on_stdout_ready"
+scaffold.py: [attr-defined] "None" has no attribute "_update_cascade_run"
+scaffold.py: [attr-defined] "None" has no attribute "cascade_dock"
+scaffold.py: [attr-defined] "None" has no attribute "cascade_dock"
+scaffold.py: [attr-defined] "None" has no attribute "cascade_dock"
+scaffold.py: [attr-defined] "None" has no attribute "cascade_dock"
+scaffold.py: [attr-defined] "None" has no attribute "cascade_dock"
+scaffold.py: [attr-defined] "None" has no attribute "process"
+scaffold.py: [attr-defined] "None" has no attribute "process"
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "addItem"
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "addItem"
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "addItem"
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "addItem"
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "addItems"
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "currentIndexChanged"
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "currentTextChanged"
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "findData"
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "itemChanged"; maybe "stateChanged"?
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "lineEdit"
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "lineEdit"
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "lineEdit"
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "setCurrentIndex"
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "setCurrentText"
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "setCurrentText"
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "setEditable"
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "setPlaceholderText"
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "setPlainText"
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "textChanged"; maybe "stateChanged"?
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "textChanged"; maybe "stateChanged"?
+scaffold.py: [attr-defined] "QCheckBox" has no attribute "textChanged"; maybe "stateChanged"?
+scaffold.py: [attr-defined] "QDialog" has no attribute "_notes_editor"
+scaffold.py: [attr-defined] "QLineEdit" has no attribute "_is_fallback"
+scaffold.py: [attr-defined] "QSpinBox" has no attribute "setPlaceholderText"
+scaffold.py: [attr-defined] "QWidget" has no attribute "_line_edit"
+scaffold.py: [attr-defined] "QWidget" has no attribute "_line_edit"
+scaffold.py: [attr-defined] "QWidget" has no attribute "_show_toggle"
+scaffold.py: [attr-defined] "QWidget" has no attribute "currentText"
+scaffold.py: [attr-defined] "QWidget" has no attribute "currentText"
+scaffold.py: [attr-defined] "QWidget" has no attribute "currentText"
+scaffold.py: [attr-defined] "QWidget" has no attribute "text"
+scaffold.py: [attr-defined] "QWidget" has no attribute "verticalScrollBar"
+scaffold.py: [call-overload] No overload variant of "get" of "dict" matches argument types "object", "tuple[Callable[[list[str]], str], str]"
+scaffold.py: [call-overload] No overload variant of "get" of "dict" matches argument types "object", "tuple[Callable[[list[str]], str], str]"
+scaffold.py: [call-overload] No overload variant of "int" matches argument type "object"
+scaffold.py: [call-overload] No overload variant of "int" matches argument type "object"
+scaffold.py: [call-overload] No overload variant of "int" matches argument type "object"
+scaffold.py: [call-overload] No overload variant of "int" matches argument type "object"
+scaffold.py: [call-overload] No overload variant of "int" matches argument type "object"
+scaffold.py: [func-returns-value] "_fit_last_column" does not return a value (it only ever returns None)
+scaffold.py: [func-returns-value] "_fit_last_column" does not return a value (it only ever returns None)
+scaffold.py: [func-returns-value] "_fit_last_column" does not return a value (it only ever returns None)
+scaffold.py: [func-returns-value] "_fit_last_column" does not return a value (it only ever returns None)
+scaffold.py: [func-returns-value] "_fit_last_column" does not return a value (it only ever returns None)
+scaffold.py: [func-returns-value] "_fit_last_column" does not return a value (it only ever returns None)
+scaffold.py: [has-type] Cannot determine type of "_output_search_bar"
+scaffold.py: [has-type] Cannot determine type of "_output_search_bar"
+scaffold.py: [has-type] Cannot determine type of "_output_search_count_label"
+scaffold.py: [has-type] Cannot determine type of "_output_search_widget"
+scaffold.py: [has-type] Cannot determine type of "output"
+scaffold.py: [has-type] Cannot determine type of "output"
+scaffold.py: [has-type] Cannot determine type of "output"
+scaffold.py: [has-type] Cannot determine type of "status"
+scaffold.py: [index] Value of type "Any | None" is not indexable
+scaffold.py: [index] Value of type "Any | None" is not indexable
+scaffold.py: [method-assign] Cannot assign to a method
+scaffold.py: [method-assign] Cannot assign to a method
+scaffold.py: [method-assign] Cannot assign to a method
+scaffold.py: [method-assign] Cannot assign to a method
+scaffold.py: [method-assign] Cannot assign to a method
+scaffold.py: [method-assign] Cannot assign to a method
+scaffold.py: [method-assign] Cannot assign to a method
+scaffold.py: [method-assign] Cannot assign to a method
+scaffold.py: [method-assign] Cannot assign to a method
+scaffold.py: [no-redef] Attribute "_output_search_matches" already defined on line N
+scaffold.py: [return-value] Incompatible return value type (got "list[QTreeWidgetItem | None]", expected "list[QTreeWidgetItem]")
+scaffold.py: [type-var] Value of type variable "SupportsRichComparisonT" of "sorted" cannot be "Any | None"
+scaffold.py: [union-attr] Item "None" of "QComboBox | None" has no attribute "currentIndex"
+scaffold.py: [union-attr] Item "None" of "QComboBox | None" has no attribute "itemData"
+scaffold.py: [union-attr] Item "None" of "QComboBox | None" has no attribute "setToolTip"
+scaffold.py: [union-attr] Item "None" of "QCoreApplication | None" has no attribute "palette"
+scaffold.py: [union-attr] Item "None" of "QCoreApplication | None" has no attribute "palette"
+scaffold.py: [union-attr] Item "None" of "QCoreApplication | None" has no attribute "setPalette"
+scaffold.py: [union-attr] Item "None" of "QCoreApplication | None" has no attribute "setPalette"
+scaffold.py: [union-attr] Item "None" of "QCoreApplication | None" has no attribute "setPalette"
+scaffold.py: [union-attr] Item "None" of "QCoreApplication | None" has no attribute "setStyle"
+scaffold.py: [union-attr] Item "None" of "QCoreApplication | None" has no attribute "setStyleSheet"
+scaffold.py: [union-attr] Item "None" of "QCoreApplication | None" has no attribute "setStyleSheet"
+scaffold.py: [union-attr] Item "None" of "QCoreApplication | None" has no attribute "style"
+scaffold.py: [union-attr] Item "None" of "QCoreApplication | None" has no attribute "styleHints"
+scaffold.py: [union-attr] Item "None" of "QCoreApplication | None" has no attribute "styleHints"
+scaffold.py: [union-attr] Item "None" of "QLayoutItem | None" has no attribute "widget"
+scaffold.py: [union-attr] Item "None" of "QLayoutItem | None" has no attribute "widget"
+scaffold.py: [union-attr] Item "None" of "QObject | None" has no attribute "_clear_history"
+scaffold.py: [union-attr] Item "None" of "QTableWidgetItem | None" has no attribute "setBackground"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | Any | None" has no attribute "data"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | Any | None" has no attribute "isHidden"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | Any | None" has no attribute "isHidden"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | Any | None" has no attribute "setHidden"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | Any | None" has no attribute "setHidden"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | Any | None" has no attribute "setHidden"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | Any | None" has no attribute "text"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | Any | None" has no attribute "text"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | None" has no attribute "child"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | None" has no attribute "child"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | None" has no attribute "child"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | None" has no attribute "child"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | None" has no attribute "childCount"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | None" has no attribute "childCount"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | None" has no attribute "childCount"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | None" has no attribute "childCount"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | None" has no attribute "isExpanded"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | None" has no attribute "isHidden"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | None" has no attribute "setExpanded"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | None" has no attribute "setHidden"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | None" has no attribute "setHidden"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | None" has no attribute "setHidden"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | None" has no attribute "text"
+scaffold.py: [union-attr] Item "None" of "QTreeWidgetItem | None" has no attribute "text"
+scaffold.py: [union-attr] Item "None" of "QWidget | Any | None" has no attribute "deleteLater"
+scaffold.py: [union-attr] Item "None" of "QWidget | Any | None" has no attribute "hide"
+scaffold.py: [union-attr] Item "None" of "QWidget | Any | None" has no attribute "setParent"
+scaffold.py: [union-attr] Item "QCoreApplication" of "QCoreApplication | None" has no attribute "palette"
+scaffold.py: [union-attr] Item "QCoreApplication" of "QCoreApplication | None" has no attribute "palette"
+scaffold.py: [union-attr] Item "QCoreApplication" of "QCoreApplication | None" has no attribute "setPalette"
+scaffold.py: [union-attr] Item "QCoreApplication" of "QCoreApplication | None" has no attribute "setPalette"
+scaffold.py: [union-attr] Item "QCoreApplication" of "QCoreApplication | None" has no attribute "setPalette"
+scaffold.py: [union-attr] Item "QCoreApplication" of "QCoreApplication | None" has no attribute "setStyle"
+scaffold.py: [union-attr] Item "QCoreApplication" of "QCoreApplication | None" has no attribute "setStyleSheet"
+scaffold.py: [union-attr] Item "QCoreApplication" of "QCoreApplication | None" has no attribute "setStyleSheet"
+scaffold.py: [union-attr] Item "QCoreApplication" of "QCoreApplication | None" has no attribute "style"
+scaffold.py: [union-attr] Item "QCoreApplication" of "QCoreApplication | None" has no attribute "styleHints"
+scaffold.py: [union-attr] Item "QCoreApplication" of "QCoreApplication | None" has no attribute "styleHints"
+scaffold.py: [union-attr] Item "QObject" of "QObject | None" has no attribute "_clear_history"
+scaffold.py: [union-attr] Item "QSpinBox" of "QSpinBox | QDoubleSpinBox" has no attribute "setDecimals"
+scaffold.py: [var-annotated] Need type annotation for "_output_search_matches" (hint: "_output_search_matches: list[<type>] = ...")
+scaffold.py: [var-annotated] Need type annotation for "_search_matches" (hint: "_search_matches: list[<type>] = ...")
+scaffold.py: [var-annotated] Need type annotation for "captured" (hint: "captured: dict[<type>, <type>] = ...")
+scaffold.py: [var-annotated] Need type annotation for "groups" (hint: "groups: dict[<type>, <type>] = ...")
+scaffold.py: [var-annotated] Need type annotation for "positional" (hint: "positional: list[<type>] = ...")

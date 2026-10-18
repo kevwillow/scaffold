@@ -18,7 +18,11 @@ Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixe
   - `pip-audit` on every pinned dependency set; actionlint and zizmor on the workflows
   - CodeQL (`security-extended`) for the Python code and for the workflow files; GitHub dependency review on PRs; OpenSSF Scorecard on `main`
   - Dependabot for actions and the CI requirements, with a 7-day cooldown
+  - type checking: mypy runs against `scaffold.py` on Python 3.10 (its oldest supported version) and the CI scripts on 3.13, compared with a recorded baseline (`.github/scripts/check_types.py`, `.github/mypy-baseline.txt`) so the count can only shrink
+  - coverage: all six suites run under `coverage.py` (branch, subprocess and multiprocessing included) with a floor enforced on `scaffold.py`; the HTML and XML reports are kept as an artifact
+  - fuzzing: a Hypothesis property suite (`tests/fuzz/fuzz_scaffold.py`) on Linux and Windows, short on every push and long on the weekly run
 - Every action is pinned to a full commit SHA, every CI Python dependency is pinned with hashes (`.github/requirements/`), the default token is read-only, and no workflow uses `pull_request_target`.
+- **Release workflow** (`.github/workflows/release.yml`). On a `v*` tag it checks the tag matches the version and the dated `CHANGELOG.md` entry, confirms the tagged commit is on `main`, builds the wheel and sdist, verifies they install and run on Windows, macOS and Linux, signs SLSA build provenance with `actions/attest-build-provenance` (Sigstore), and publishes the GitHub release with the wheel, sdist and a `SHA256SUMS` file. A pull request that touches the release machinery runs the same build and verify as a dry run.
 
 ### Fixed (high impact)
 
@@ -30,6 +34,7 @@ Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixe
 - **Cascades no longer hang in "running" on Linux/macOS when a step's binary is missing.** `errorOccurred(FailedToStart)` is delivered asynchronously there, after the synchronous guard has already run. A per-process handler now cleans the chain up, and headless `--run-cascade` exits instead of hanging.
 - **Regex captures work on Windows/macOS when launched as `python scaffold.py`.** The spawn-based worker pool could not resolve `__main__._regex_worker_entry`, so every stdout/stderr capture timed out after 2 s.
 - **PowerShell "Copy as" quoting.** Typographic single quotes (U+2018 to U+201B) end a PowerShell single-quoted string and are now doubled; previously `x’; calc; ’` broke out of quoting. Tokens containing `,` (array operator, split into separate argv entries) or `@` (splatting) are now quoted.
+- **PowerShell "Copy as": the stop-parsing token and dotted switches are quoted.** A bare `--%` is PowerShell's stop-parsing token and turns off quoting for the rest of the line; a bare switch with a dot (for example `-Dprop.name=value`) is split at the first dot by the native-argument parser and reaches the program as two tokens. Both are now single-quoted. Found by the new fuzzer and checked against real PowerShell 7.
 - **Positional password values are masked** in the `$ …` output line and in saved history.
 - **One malformed schema no longer stops Scaffold from starting.** A non-string `description`, or a list/dict value for `type`, `separator`, `elevated`, `group`, `flag` or `depends_on`, is now a validation error instead of an uncaught exception in the tool picker.
 - **Non-UTF-8 JSON** (e.g. UTF-16 written by PowerShell's `>`) now produces a clean "not valid UTF-8" error for schemas, presets, cascades, recovery files, `--vars` and the headless peek, instead of an unhandled `UnicodeDecodeError`.
@@ -49,6 +54,7 @@ Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixe
 - CMD "Copy as" doubles trailing backslashes before the closing quote; subcommand tooltips and decorated field labels are HTML-escaped; cascade export writes forward slashes so Windows-saved cascades load on POSIX; the per-entry history size cap now applies to cascade runs; finished QProcess objects are released; the crash-recovery file is created under an owner-only umask; the stop-on-error button restyles on theme change; a capture with `"group": null` uses the default group; a non-bytes `window/geometry` setting no longer prevents startup.
 - An argument with an empty `"flag": ""` is now a validation error that points to `"positional": true`. It used to load and then put an empty-string argument on the command line (`python3 '' script.py` made Python look for `__main__` in the current folder).
 - `_cascade_path_is_safe` rejects backslash traversal (`..\..\x`) on POSIX too, so cascade files are judged the same on every platform.
+- The data-folder migration's conflict-copy naming no longer risks raising on a name the filesystem can't re-encode; the 255-byte length check falls back to a safe estimate instead of aborting the migration. Found by the new fuzzer.
 
 ### Changed (visible behavior)
 
@@ -76,6 +82,8 @@ Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixe
 
 ### Tests
 
+- §212g: PowerShell "Copy as" quotes a bare `--%` and dotted switches so pasted commands can't lose or re-split arguments. Checked against real PowerShell 7.
+- A property fuzzer (`tests/fuzz/fuzz_scaffold.py`, Hypothesis): the validators, loaders, normalizer and filename sanitizers never raise on malformed input; the "Copy as" formatters round-trip through a real bash, PowerShell and (on Windows) cmd.exe back to the exact argv; and the migration and cascade path helpers keep their containment invariants.
 - Sections §217 (already-elevated runs), §218 (placeholder preset hash), §219 (empty flags) and §220 (data folder and migration: copy-only, no overwrite, conflict copies, newest version wins, resume and retry limit, unreadable files and folders, every Qt exe name, case-insensitive nesting and path matching, symlinks, long file names, settings rewrite from the marker, tampered markers, seeding held while pending, per-folder completion, concurrent launches, headless first launch, crash safety) added; all fail on v2.13.1.
 - The CI install job is now an end-to-end migration test on Windows, macOS and Linux: it plants data where each OS's older `scaffold` command kept it, runs the installed command, and checks the copy, the backup, the marker and that a second launch does nothing.
 - §96's SIGTERM-resistant helper never actually ran: its schema used an empty flag, so Python got an empty script path and exited at once, and the checks passed on timing alone (macOS CI exposed it). The helper now uses a positional argument, and 96f waits until the child has installed its signal handler before clicking Stop. §154's helper schema got the same fix.

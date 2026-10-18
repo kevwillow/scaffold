@@ -9,6 +9,14 @@ dist/
 *.egg-info/
 *.egg
 
+# Type checking, coverage and fuzzing output
+.mypy_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.hypothesis/
+
 # Virtual environments
 venv/
 env/
