@@ -2170,7 +2170,7 @@ _s23_f.fields[(_s23_G, "--host")]["widget"].setText("example.com")
 app.processEvents()
 _s23_cmd, _s23_display = _s23_f.build_command()
 check("--host" in _s23_cmd, "build_command includes --host from display group")
-check("example.com" in _s23_cmd, "build_command includes host value from display group")
+check(_s23_cmd.count("example.com") == 1, "build_command includes host value from display group")
 check("echo" == _s23_cmd[0], "build_command binary is correct")
 
 # 23i: Preset round-trip works with grouped fields
@@ -8490,7 +8490,7 @@ check("--api-key" in _s70_masked,
       "70b: password flag --api-key preserved in masked output")
 
 # 70c: Non-password value preserved
-check("example.com" in _s70_masked,
+check(_s70_masked.count("example.com") == 1,
       "70c: non-password value example.com preserved")
 
 _s70_w.close(); _s70_w.deleteLater(); app.processEvents()
@@ -23298,7 +23298,7 @@ _s179_t17d_argvs, _s179_t17d_finish, _s179_t17d_status, _s179_t17d_state = _s179
 check(len(_s179_t17d_argvs) >= 2,
       f"T17d: both steps reached _on_run_stop (got {len(_s179_t17d_argvs)})")
 if len(_s179_t17d_argvs) >= 2:
-    check("example.com:8080" in _s179_t17d_argvs[1],
+    check(_s179_t17d_argvs[1].count("example.com:8080") == 1,
           f"T17d: step-2 argv contains 'example.com:8080' "
           f"(got {_s179_t17d_argvs[1]!r})")
 else:
@@ -26684,8 +26684,7 @@ _s200_pw_win._copy_password_choice = True
 _s200_pw_win._on_reset_pw_copy_prompt()
 app.processEvents()
 check(_s200_pw_win._copy_password_choice is None,
-      f"200E.3: after reset, _copy_password_choice is None "
-      f"(got {_s200_pw_win._copy_password_choice!r})")
+      "200E.3: after reset, _copy_password_choice is None")
 check("reset" in _s200_pw_win.statusBar().currentMessage().lower(),
       f"200E.4: reset shows confirmation message on status bar "
       f"(got {_s200_pw_win.statusBar().currentMessage()!r})")
