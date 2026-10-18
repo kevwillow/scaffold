@@ -1,0 +1,8 @@
+# Fuzzing, coverage and type-checking tools used by CI, installed next to
+# test-py312.txt (PySide6). Compile with Python 3.13:
+#   pip-compile --generate-hashes --allow-unsafe --strip-extras .github/requirements/qa.in
+# Pinned to releases at least 7 days old, matching Dependabot's cooldown.
+hypothesis==6.168.5
+coverage==7.16.2
+mypy==2.4.0
+ast-serialize==0.12.1  # mypy dependency; 0.13.x was under 7 days old when pinned

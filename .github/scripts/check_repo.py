@@ -55,10 +55,17 @@ def tracked(pattern: str) -> list[str]:
 # --- version consistency --------------------------------------------------
 print("== Version")
 pyproject = tomllib.loads(read("pyproject.toml"))
+
+
+def _assigned(name: str, path: str) -> str | None:
+    m = re.search(rf'^{name} = "([^"]+)"', read(path), re.M)
+    return m.group(1) if m else None
+
+
 versions = {
     "pyproject.toml": pyproject["project"]["version"],
-    "scaffold.py __version__": re.search(r'^__version__ = "([^"]+)"', read("scaffold.py"), re.M).group(1),
-    "test_functional.py EXPECTED_VERSION": re.search(r'^EXPECTED_VERSION = "([^"]+)"', read("test_functional.py"), re.M).group(1),
+    "scaffold.py __version__": _assigned("__version__", "scaffold.py"),
+    "test_functional.py EXPECTED_VERSION": _assigned("EXPECTED_VERSION", "test_functional.py"),
 }
 if len(set(versions.values())) != 1:
     fail("version mismatch: " + ", ".join(f"{k}={v}" for k, v in versions.items()))

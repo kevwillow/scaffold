@@ -43,3 +43,6 @@ Every pull request and push to `main` runs these checks, and the CI and CodeQL w
 - `pip-audit` on every pinned dependency, and GitHub's dependency review on any PR that changes dependencies
 - actionlint and zizmor on the workflows; every action is pinned to a full commit SHA and every Python dependency is pinned with hashes
 - an OpenSSF Scorecard run on `main`
+- a property fuzzer (Hypothesis) that throws malformed and hostile input at the validators, loaders and the "Copy as" quoting, and checks the quoting round-trips through a real shell back to the exact argument list
+- mypy type checking against a baseline that can only shrink, and a coverage floor on `scaffold.py`
+- on a release tag, the published wheel and sdist carry signed SLSA build provenance (Sigstore), verifiable with `gh attestation verify`

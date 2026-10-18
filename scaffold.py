@@ -2831,6 +2831,18 @@ _PS_SAFE_TOKEN_RE = re.compile(r'^[A-Za-z0-9_./:=+%-]+$')
 _PS_SINGLE_QUOTES_RE = re.compile("(['\u2018\u2019\u201a\u201b])")
 
 
+def _ps_bare_ok(token: str) -> bool:
+    """True if PowerShell passes token to a native program unchanged when unquoted."""
+    if not _PS_SAFE_TOKEN_RE.match(token):
+        return False
+    # A bare '--%' is PowerShell's stop-parsing token, which turns off quoting
+    # for the rest of the line, and a bare token starting with '-' is split at
+    # its first '.' ('-Dprop.name=1' arrives as '-Dprop' '.name=1'). Quoted,
+    # '--%' keeps the rest of the line quoted, though PowerShell 7 still drops
+    # that one argument however it is written.
+    return token != "--%" and not (token.startswith("-") and "." in token)
+
+
 def _format_powershell(cmd: list[str]) -> str:
     """Format a command list as a PowerShell command string.
 
@@ -2844,7 +2856,7 @@ def _format_powershell(cmd: list[str]) -> str:
     for i, token in enumerate(cmd):
         # Replace newlines — PS single-quoted strings cannot span lines
         token = token.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
-        if _PS_SAFE_TOKEN_RE.match(token):
+        if _ps_bare_ok(token):
             parts.append(token)
         elif i == 0:
             # Binary needs & prefix and single-quoting
@@ -3131,12 +3143,26 @@ def _copy_new(src: Path, target: Path) -> bool:
             pass
 
 
+def _name_bytes(s: str) -> int:
+    """Length of s as the filesystem would store it, never raising.
+
+    os.fsencode handles the surrogate-escaped names os.walk produces from
+    non-UTF-8 bytes; a genuinely unencodable character (which the filesystem
+    can't actually produce) falls back to a replaced-encoding estimate so a
+    name-length check can't abort the migration.
+    """
+    try:
+        return len(os.fsencode(s))
+    except (UnicodeEncodeError, ValueError):
+        return len(s.encode("utf-8", "replace"))
+
+
 def _conflict_name(name: str, label: str, n: int) -> str:
     """'scan.json' -> 'scan (from scaffold.py).json', cut to fit 255 bytes."""
     p = Path(name)
     stem, suffix = p.stem, p.suffix
     tag = f" (from {label})" if n == 1 else f" (from {label} {n})"
-    while stem and len(os.fsencode(stem + tag + suffix)) > 255:
+    while stem and _name_bytes(stem + tag + suffix) > 255:
         stem = stem[:-1]
     return stem + tag + suffix
 
@@ -3281,7 +3307,7 @@ def _migrate_legacy_data(new_root: Path, legacy_roots: list[Path]) -> dict | Non
     todo = [p for p in legacy_roots if not _is_new_root(p) and not _legacy_root_done(p, state)]
     if not todo:
         return None
-    summary = {"migrated_from": [str(p) for p in todo], "copied": 0, "conflicts": [],
+    summary: dict = {"migrated_from": [str(p) for p in todo], "copied": 0, "conflicts": [],
                "errors": [], "pending": True}
     try:
         new_root.mkdir(parents=True, exist_ok=True)
