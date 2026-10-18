@@ -16,7 +16,7 @@
 
 """ test_functional.py — end-to-end behavioral test suite for Scaffold.
 
-Runs as a single linear script (sections 1 to 219), tracking pass/fail counts.
+Runs as a single linear script (sections 1 to 220), tracking pass/fail counts.
 Each section spins up a MainWindow, exercises a feature area, then cleans up.
 
 Coverage:
@@ -31352,6 +31352,619 @@ check(_s219_cmd == ["t219", "x.py"] and "" not in _s219_cmd,
       f"219d: positional value is one argv token with no empty token (got {_s219_cmd!r})")
 _s219_form.deleteLater()
 app.processEvents()
+
+
+# =====================================================================
+# Section 220
+# =====================================================================
+print("\n--- Section 220: Installed-mode data folder and legacy data migration ---")
+
+# Up to 2.13.1 an installed Scaffold put user data in <base>/<exe name>/Scaffold
+# (e.g. ~/.local/share/scaffold/Scaffold, %APPDATA%\python\Scaffold) because Qt
+# appends the executable's name when no application name is set. 2.13.2 uses
+# <base>/Scaffold, as documented, and copies each old folder's contents across
+# once: copy only, never overwrite, never delete, never hide a version.
+
+import stat as _s220_stat
+from unittest import mock as _s220_mock
+
+_s220_tmp = Path(tempfile.mkdtemp(prefix="scaffold_test220_"))
+_s220_saved = {
+    "QStandardPaths": scaffold.QStandardPaths,
+    "QApplication": scaffold.QApplication,
+    "_is_installed_mode": scaffold._is_installed_mode,
+    "_create_settings": scaffold._create_settings,
+    "_migrate_legacy_data": scaffold._migrate_legacy_data,
+    "_copy_new": scaffold._copy_new,
+    "_write_moved_note": scaffold._write_moved_note,
+    "checked": scaffold._legacy_migration_checked,
+    "pending": scaffold._legacy_migration_pending,
+    "fold": scaffold._FOLD_PATH_CASE,
+}
+_s220_posix_user = sys.platform != "win32" and os.geteuid() != 0
+
+
+class _S220Paths:
+    """Stand-in for QStandardPaths: AppDataLocation is <base>/<org>/<app>."""
+    StandardLocation = scaffold.QStandardPaths.StandardLocation
+    base = None
+
+    @staticmethod
+    def writableLocation(_loc):
+        p = Path(_S220Paths.base)
+        for part in (_S220App.org, _S220App.app):
+            if part:
+                p = p / part
+        return str(p)
+
+
+class _S220App:
+    app = "scaffold"
+    org = ""
+
+    @staticmethod
+    def applicationName():
+        return _S220App.app
+
+    @staticmethod
+    def organizationName():
+        return _S220App.org
+
+
+def _s220_files(root):
+    return sorted(str(p.relative_to(root)).replace("\\", "/")
+                  for p in Path(root).rglob("*") if p.is_file() or p.is_symlink())
+
+
+def _s220_make_legacy(base, name="scaffold"):
+    old = Path(base) / name / "Scaffold"
+    (old / "presets" / "nmap").mkdir(parents=True)
+    (old / "presets" / "nmap" / "mine.json").write_text('{"_format": "scaffold_preset", "v": "old"}', encoding="utf-8")
+    (old / "cascades").mkdir()
+    (old / "cascades" / "c.json").write_text('{"_format": "scaffold_cascade"}', encoding="utf-8")
+    (old / "tools").mkdir()
+    (old / "tools" / "t.json").write_text('{"tool": "t"}', encoding="utf-8")
+    return old
+
+
+def _s220_launch():
+    """One installed-mode 'launch': reset the per-process state, return (root, stderr)."""
+    scaffold._legacy_migration_checked = False
+    scaffold._legacy_migration_pending = False
+    with _patch_stderr() as err:
+        root = scaffold._user_data_root()
+    return root, err.getvalue()
+
+
+def _s220_failing_copy(*names):
+    """A _copy_new that fails for files with these names, like a locked file."""
+    def _copy(src, target):
+        if src.name in names:
+            raise PermissionError(13, "simulated: file is locked", str(src))
+        return _s220_saved["_copy_new"](src, target)
+    return _copy
+
+
+def _s220_record(new_root, old):
+    state = scaffold._read_migration_state(new_root)
+    return state["roots"][scaffold._state_key(state, old)]
+
+
+try:
+    scaffold.QStandardPaths = _S220Paths
+    scaffold.QApplication = _S220App
+    # Keep the settings rewrite away from this process's real settings.
+    _s220_ini_path = _s220_tmp / "settings.ini"
+    scaffold._create_settings = lambda: QSettings(str(_s220_ini_path), QSettings.Format.IniFormat)
+
+    # --- 220a: _app_data_base strips the names Qt appended ----------------
+    _S220Paths.base = str(_s220_tmp / "a")
+    _S220App.app, _S220App.org = "scaffold", ""
+    check(scaffold._app_data_base() == _s220_tmp / "a", "220a: strips the app name")
+    _S220App.app, _S220App.org = "App", "Org"
+    check(scaffold._app_data_base() == _s220_tmp / "a", "220a: strips organization and app names")
+    _S220App.app, _S220App.org = "", ""
+    check(scaffold._app_data_base() == _s220_tmp / "a", "220a: no name set (before QApplication) -> base unchanged")
+    _S220Paths.writableLocation = staticmethod(lambda _l: str(_s220_tmp / "a" / "unexpected"))
+    _S220App.app = "scaffold"
+    check(scaffold._app_data_base() == _s220_tmp / "a" / "unexpected",
+          "220a: an unexpected path is returned as is (keeps the old behavior)")
+    del _S220Paths.writableLocation
+    _S220Paths.writableLocation = staticmethod(
+        lambda _l: str(Path(_S220Paths.base).joinpath(*[p for p in (_S220App.org, _S220App.app) if p])))
+
+    # --- 220b: installed mode uses <base>/Scaffold whatever the exe name is
+    scaffold._is_installed_mode = lambda: True
+    for _s220_name in ("scaffold", "python", "Python", ""):
+        _S220Paths.base = str(_s220_tmp / f"b_{_s220_name or 'none'}")
+        _S220App.app, _S220App.org = _s220_name, ""
+        _s220_root, _ = _s220_launch()
+        check(_s220_root == Path(_S220Paths.base) / "Scaffold" and _s220_root.is_dir(),
+              f"220b: exe name {_s220_name!r} -> data root is <base>/Scaffold (got {_s220_root})")
+
+    # --- 220c: legacy data is copied once, old folder kept, note + marker -
+    _S220Paths.base = str(_s220_tmp / "c")
+    _S220App.app = "scaffold"
+    _s220_old = _s220_make_legacy(_S220Paths.base)
+    _s220_old_files = _s220_files(_s220_old)
+    _s220_new, _s220_err = _s220_launch()
+    check(_s220_new == Path(_S220Paths.base) / "Scaffold", "220c: new root is <base>/Scaffold")
+    check(all((_s220_new / f).read_bytes() == (_s220_old / f).read_bytes() for f in _s220_old_files),
+          f"220c: every legacy file copied byte-for-byte ({_s220_old_files})")
+    check(_s220_files(_s220_old) == sorted(_s220_old_files + [scaffold._MIGRATION_NOTE]),
+          "220c: legacy files untouched; only a MOVED.txt note added")
+    check(str(_s220_new) in (_s220_old / scaffold._MIGRATION_NOTE).read_text(encoding="utf-8"),
+          "220c: MOVED.txt names the new folder")
+    _s220_rec = _s220_record(_s220_new, _s220_old)
+    check(_s220_rec["done"] is True and _s220_rec["errors"] == []
+          and _s220_rec["files"] == {f: f for f in _s220_old_files},
+          f"220c: marker records the folder as done and where each file went (got {_s220_rec})")
+    check("copied 3 file(s)" in _s220_err, f"220c: one stderr line reports the copy (got {_s220_err!r})")
+    check(not list(_s220_new.rglob(".mig-*")), "220c: no temporary files left behind")
+    check(scaffold._migrate_legacy_data(_s220_new, [_s220_old]) is None,
+          "220c: a second run does nothing")
+    with _patch_stderr() as _s220_errio:
+        scaffold._user_data_root()
+    check(_s220_errio.getvalue() == "", "220c: later calls in the same process stay silent")
+    (_s220_new / "cascades" / "c.json").unlink()
+    _, _s220_err = _s220_launch()
+    check(not (_s220_new / "cascades" / "c.json").exists() and _s220_err == "",
+          "220c: a file deleted after the migration is not brought back on the next launch")
+
+    # --- 220d: a file already in the new root is kept; the other version
+    # gets its own name instead of being hidden --------------------------
+    _s220_new = _s220_tmp / "d" / "Scaffold"
+    (_s220_new / "presets" / "nmap").mkdir(parents=True)
+    (_s220_new / "presets" / "nmap" / "mine.json").write_text("NEW", encoding="utf-8")
+    (_s220_new / "tools").mkdir()
+    (_s220_new / "tools" / "t.json").write_text('{"tool": "t"}', encoding="utf-8")  # same as legacy
+    _s220_old = _s220_make_legacy(_s220_tmp / "d")
+    _s220_sum = scaffold._migrate_legacy_data(_s220_new, [_s220_old])
+    _s220_alt = "presets/nmap/mine (from scaffold).json"
+    check((_s220_new / "presets" / "nmap" / "mine.json").read_text(encoding="utf-8") == "NEW",
+          "220d: a file already in the new root keeps its content")
+    check((_s220_new / _s220_alt).read_bytes() == (_s220_old / "presets" / "nmap" / "mine.json").read_bytes(),
+          "220d: the legacy version is saved next to it as 'mine (from scaffold).json'")
+    check(_s220_sum["copied"] == 2 and _s220_sum["conflicts"] == [_s220_alt] and _s220_sum["errors"] == [],
+          f"220d: identical file not duplicated; one conflict copy reported (got {_s220_sum})")
+    check(_s220_record(_s220_new, _s220_old)["files"]["presets/nmap/mine.json"] == _s220_alt,
+          "220d: the marker records where the legacy version went")
+
+    # --- 220e: an interrupted copy finishes on the next run ---------------
+    _s220_new = _s220_tmp / "e" / "Scaffold"
+    _s220_old = _s220_make_legacy(_s220_tmp / "e")
+    (_s220_new / "tools").mkdir(parents=True)
+    shutil.copy2(_s220_old / "tools" / "t.json", _s220_new / "tools" / "t.json")  # half done, no marker
+    _s220_sum = scaffold._migrate_legacy_data(_s220_new, [_s220_old])
+    check(_s220_files(_s220_new) == sorted(_s220_old_files + [scaffold._MIGRATION_MARKER])
+          and _s220_sum["copied"] == 2 and _s220_sum["conflicts"] == [],
+          f"220e: resumed copy ends with every file once, plus the marker (got {_s220_files(_s220_new)})")
+
+    # --- 220f: a failed copy is retried, then given up on after 3 launches
+    _s220_new = _s220_tmp / "f" / "Scaffold"
+    _s220_old = _s220_make_legacy(_s220_tmp / "f")
+    scaffold._copy_new = _s220_failing_copy("c.json")
+    _s220_sum = scaffold._migrate_legacy_data(_s220_new, [_s220_old])
+    check(_s220_sum["errors"] and _s220_sum["pending"] and _s220_record(_s220_new, _s220_old)["done"] is False,
+          "220f: a failed file is reported and the folder is not marked done")
+    check((_s220_new / "tools" / "t.json").is_file(), "220f: the other files are still copied")
+    check(not (_s220_old / scaffold._MIGRATION_NOTE).exists(), "220f: no MOVED.txt while files are missing")
+    scaffold._migrate_legacy_data(_s220_new, [_s220_old])
+    _s220_sum = scaffold._migrate_legacy_data(_s220_new, [_s220_old])
+    _s220_rec = _s220_record(_s220_new, _s220_old)
+    check(_s220_rec["tries"] == 3 and _s220_rec["done"] is True and not _s220_sum["pending"],
+          f"220f: after {scaffold._MIGRATION_TRIES} failed launches it stops retrying (got {_s220_rec})")
+    _s220_note = (_s220_old / scaffold._MIGRATION_NOTE).read_text(encoding="utf-8")
+    check("could not be copied" in _s220_note and "c.json" in _s220_note,
+          "220f: MOVED.txt lists the file that is only in the old folder")
+    scaffold._copy_new = _s220_saved["_copy_new"]
+    _s220_new = _s220_tmp / "f2" / "Scaffold"
+    _s220_old = _s220_make_legacy(_s220_tmp / "f2")
+    scaffold._copy_new = _s220_failing_copy("c.json")
+    scaffold._migrate_legacy_data(_s220_new, [_s220_old])
+    scaffold._copy_new = _s220_saved["_copy_new"]
+    _s220_sum = scaffold._migrate_legacy_data(_s220_new, [_s220_old])
+    check(_s220_sum["errors"] == [] and (_s220_new / "cascades" / "c.json").is_file()
+          and (_s220_old / scaffold._MIGRATION_NOTE).is_file(),
+          "220f: once the problem clears, the retry completes")
+    if _s220_posix_user:  # the same with a real permission error
+        _s220_new = _s220_tmp / "f3" / "Scaffold"
+        _s220_old = _s220_make_legacy(_s220_tmp / "f3")
+        _s220_locked = _s220_old / "cascades" / "c.json"
+        os.chmod(_s220_locked, 0)
+        try:
+            _s220_sum = scaffold._migrate_legacy_data(_s220_new, [_s220_old])
+            check(_s220_sum["errors"] and _s220_sum["pending"], "220f: an unreadable file is a retryable error")
+        finally:
+            os.chmod(_s220_locked, _s220_stat.S_IRUSR | _s220_stat.S_IWUSR)
+        _s220_locked_dir = _s220_old / "tools"
+        os.chmod(_s220_locked_dir, 0)
+        try:
+            _s220_sum = scaffold._migrate_legacy_data(_s220_new, [_s220_old])
+            check(_s220_sum["errors"] and _s220_sum["pending"],
+                  "220f: an unreadable folder is an error too, not silently skipped")
+        finally:
+            os.chmod(_s220_locked_dir, _s220_stat.S_IRWXU)
+    else:
+        check(True, "220f: real-permission variants skipped (need a non-root POSIX user)")
+
+    # --- 220g: which folders count as legacy data -------------------------
+    _s220_gbase = _s220_tmp / "g"
+    (_s220_gbase / "python" / "Scaffold" / "unrelated").mkdir(parents=True)
+    for _s220_name in ("pythonw3", "python3t", "scaffold.py", "notpython", "scaffolding"):
+        _s220_make_legacy(_s220_gbase, _s220_name)
+    _s220_found = sorted(p.parent.name for p in scaffold._legacy_data_roots(_s220_gbase))
+    check(_s220_found == ["python3t", "pythonw3", "scaffold.py"],
+          f"220g: Qt exe names count, other folders and ones without presets/cascades/tools don't "
+          f"(found {_s220_found})")
+    check(scaffold._legacy_data_roots(_s220_tmp / "g_empty") == [], "220g: nothing to migrate on a fresh install")
+    _S220App.app = "my-launcher"
+    _s220_make_legacy(_s220_gbase, "my-launcher")
+    check("my-launcher" in [p.parent.name for p in scaffold._legacy_data_roots(_s220_gbase)],
+          "220g: the current Qt application name counts too")
+    _S220App.app = "scaffold"
+    _s220_names = {n: bool(scaffold._LEGACY_NAME_RE.fullmatch(n)) for n in (
+        "scaffold", "Scaffold", "scaffold.py", "python", "Python", "pythonw", "python3", "pythonw3",
+        "python3t", "pythonw3t", "python3.13", "python3.13t", "pythonista", "scaffolding", "py")}
+    check([n for n, ok in _s220_names.items() if not ok] == ["pythonista", "scaffolding", "py"],
+          f"220g: name pattern covers every Windows/macOS/Linux exe name Qt produced ({_s220_names})")
+
+    # --- 220h: legacy root nested in the new root (case-insensitive FS) ---
+    # On macOS/Windows "<base>/scaffold/Scaffold" is "<base>/Scaffold/Scaffold".
+    _s220_new = _s220_tmp / "h" / "Scaffold"
+    _s220_old = _s220_make_legacy(_s220_tmp / "h", "Scaffold")  # -> h/Scaffold/Scaffold
+    _s220_sum = scaffold._migrate_legacy_data(_s220_new, [_s220_old])
+    check(_s220_sum["errors"] == [] and (_s220_new / "presets" / "nmap" / "mine.json").is_file(),
+          "220h: nested legacy folder copies up into the new root")
+    check((_s220_old / "presets" / "nmap" / "mine.json").is_file(), "220h: nested legacy copy kept")
+    check(scaffold._migrate_legacy_data(_s220_new, [_s220_new]) is None,
+          "220h: the new root itself is never used as a source")
+
+    # --- 220i: symlinks are copied as links and never redirect copies ------
+    if sys.platform != "win32":
+        _s220_ibase = _s220_tmp / "i"
+        _s220_new = _s220_ibase / "Scaffold"
+        _s220_old = _s220_make_legacy(_s220_ibase)
+        os.symlink("/nonexistent/target_220", _s220_old / "tools" / "link.json")
+        # a second legacy folder whose tools/ is a link to a folder elsewhere
+        _s220_outside = _s220_tmp / "i_outside"
+        _s220_outside.mkdir()
+        _s220_old2 = _s220_ibase / "scaffold.py" / "Scaffold"
+        (_s220_old2 / "presets").mkdir(parents=True)
+        os.symlink(_s220_outside, _s220_old2 / "tools")
+        _s220_sum = scaffold._migrate_legacy_data(_s220_new, [_s220_old2, _s220_old])
+        _s220_link = _s220_new / "tools" / "link.json"
+        check(_s220_link.is_symlink() and os.readlink(_s220_link) == "/nonexistent/target_220",
+              "220i: a symlink is recreated as the same link")
+        check(not (_s220_new / "tools").is_symlink() and (_s220_new / "tools" / "t.json").is_file()
+              and list(_s220_outside.iterdir()) == [],
+              "220i: a linked folder can't redirect another folder's files outside the new root")
+        check((_s220_new / "tools (from scaffold.py)").is_symlink() and _s220_sum["errors"] == [],
+              "220i: the linked folder is kept as its own link")
+    else:
+        check(True, "220i: skipped on Windows (symlinks need extra privileges)")
+
+    # --- 220j: saved absolute paths are repointed to the copies -----------
+    _s220_jbase = _s220_tmp / "j"
+    _s220_old = _s220_make_legacy(_s220_jbase)
+    _s220_new = _s220_jbase / "Scaffold"
+    scaffold._migrate_legacy_data(_s220_new, [_s220_old])
+    _s220_state = scaffold._read_migration_state(_s220_new)
+    _s220_ini = QSettings(str(_s220_tmp / "j_settings.ini"), QSettings.Format.IniFormat)
+    _s220_other = str(_s220_tmp / "elsewhere" / "x.json")
+
+    def _s220_seed_settings(old):
+        _s220_ini.setValue("session/last_tool", str(old / "tools" / "t.json"))
+        _s220_ini.setValue("picker/recent_tools", json.dumps(
+            [str(old / "tools" / "t.json"), _s220_other, str(old / "tools" / "gone.json")]))
+        _s220_ini.setValue("cascade/slots", json.dumps([
+            {"tool_path": str(old / "tools" / "t.json"),
+             "preset_path": str(old / "presets" / "nmap" / "mine.json"), "delay": 0},
+            {"tool_path": None, "preset_path": None, "delay": 0}]))
+
+    _s220_seed_settings(_s220_old)
+    _s220_n = scaffold._rewrite_legacy_paths(_s220_ini, _s220_state, _s220_new)
+    check(_s220_ini.value("session/last_tool") == str(_s220_new / "tools" / "t.json"),
+          "220j: last tool repointed")
+    _s220_recent = json.loads(_s220_ini.value("picker/recent_tools"))
+    check(_s220_recent == [str(_s220_new / "tools" / "t.json"), _s220_other, str(_s220_old / "tools" / "gone.json")],
+          f"220j: recent tools repointed; paths elsewhere or without a copy left alone (got {_s220_recent})")
+    _s220_slots = json.loads(_s220_ini.value("cascade/slots"))
+    check(_s220_slots[0]["tool_path"] == str(_s220_new / "tools" / "t.json")
+          and _s220_slots[0]["preset_path"] == str(_s220_new / "presets" / "nmap" / "mine.json")
+          and _s220_slots[1]["tool_path"] is None and _s220_slots[0]["delay"] == 0,
+          f"220j: cascade slot paths repointed, other fields kept (got {_s220_slots})")
+    check(_s220_n == 4, f"220j: reports 4 paths changed (got {_s220_n})")
+    check(scaffold._rewrite_legacy_paths(_s220_ini, _s220_state, _s220_new) == 0,
+          "220j: running it again changes nothing")
+    _s220_ini.setValue("cascade/slots", "{not json")
+    check(scaffold._rewrite_legacy_paths(_s220_ini, _s220_state, _s220_new) == 0,
+          "220j: malformed saved JSON is left alone without raising")
+    # the old file was edited after the migration (an older Scaffold still in use)
+    _s220_seed_settings(_s220_old)
+    (_s220_old / "tools" / "t.json").write_text('{"tool": "t", "edited": true}', encoding="utf-8")
+    scaffold._rewrite_legacy_paths(_s220_ini, _s220_state, _s220_new)
+    check(_s220_ini.value("session/last_tool") == str(_s220_old / "tools" / "t.json"),
+          "220j: a path is not repointed to a copy whose content differs")
+    # the marker is a user-editable file: never repoint outside the new root
+    _s220_bad = {"roots": {str(_s220_old): {"files": {"tools/t.json": "../../outside.json",
+                                                      "presets/nmap/mine.json": str(_s220_tmp / "abs.json")}}}}
+    (_s220_tmp / "outside.json").write_text("{}", encoding="utf-8")
+    (_s220_tmp / "abs.json").write_text("{}", encoding="utf-8")
+    shutil.rmtree(_s220_old)
+    _s220_seed_settings(_s220_old)
+    scaffold._rewrite_legacy_paths(_s220_ini, _s220_bad, _s220_new)
+    _s220_slots = json.loads(_s220_ini.value("cascade/slots"))
+    check(_s220_ini.value("session/last_tool") == str(_s220_old / "tools" / "t.json")
+          and _s220_slots[0]["preset_path"] == str(_s220_old / "presets" / "nmap" / "mine.json"),
+          "220j: a tampered marker can't point saved paths outside the new root")
+    # after the old folder is deleted, the marker still repoints paths that
+    # something (e.g. a headless run's restore) put back
+    scaffold._rewrite_legacy_paths(_s220_ini, _s220_state, _s220_new)
+    check(_s220_ini.value("session/last_tool") == str(_s220_new / "tools" / "t.json"),
+          "220j: works from the marker after the old folder is deleted")
+
+    # macOS and Windows: settings spell the folder as Qt did ("Python"); the
+    # folder on disk may be spelled "python"
+    _s220_mbase = _s220_tmp / "m"
+    _s220_old = _s220_make_legacy(_s220_mbase, "python")
+    _s220_new = _s220_mbase / "Scaffold"
+    scaffold._migrate_legacy_data(_s220_new, [_s220_old])
+    _s220_state = scaffold._read_migration_state(_s220_new)
+    _s220_qt_spelling = _s220_mbase / "Python" / "Scaffold" / "tools" / "t.json"
+    _s220_ini.setValue("session/last_tool", str(_s220_qt_spelling))
+    if sys.platform != "win32":  # Windows paths are case-insensitive whatever the flag says
+        scaffold._FOLD_PATH_CASE = False
+        scaffold._rewrite_legacy_paths(_s220_ini, _s220_state, _s220_new)
+        check(_s220_ini.value("session/last_tool") == str(_s220_qt_spelling),
+              "220j: case-sensitive systems match the folder name exactly")
+    scaffold._FOLD_PATH_CASE = True
+    scaffold._rewrite_legacy_paths(_s220_ini, _s220_state, _s220_new)
+    check(_s220_ini.value("session/last_tool") == str(_s220_new / "tools" / "t.json"),
+          "220j: case-insensitive systems match 'Python' to the folder found as 'python'")
+    scaffold._FOLD_PATH_CASE = _s220_saved["fold"]
+
+    # --- 220k: a migration crash never stops Scaffold from starting -------
+    _S220Paths.base = str(_s220_tmp / "k")
+    _s220_make_legacy(_S220Paths.base)
+
+    def _s220_boom(*_a, **_k):
+        raise RuntimeError("simulated failure")
+
+    scaffold._migrate_legacy_data = _s220_boom
+    _s220_root, _s220_err = _s220_launch()
+    check(_s220_root == Path(_S220Paths.base) / "Scaffold",
+          "220k: data root still returned when the migration raises")
+    check("simulated failure" in _s220_err, "220k: the failure is reported on stderr")
+    check(scaffold._legacy_migration_pending, "220k: and default presets aren't seeded over the gap")
+    scaffold._migrate_legacy_data = _s220_saved["_migrate_legacy_data"]
+    _S220Paths.base = str(_s220_tmp / "k2")
+    _s220_make_legacy(_S220Paths.base)
+    _s220_saved_rw = scaffold._rewrite_legacy_paths
+    scaffold._rewrite_legacy_paths = _s220_boom
+    try:
+        _s220_root, _s220_err = _s220_launch()
+    finally:
+        scaffold._rewrite_legacy_paths = _s220_saved_rw
+    check("copied 3 file(s)" in _s220_err and "could not update saved paths" in _s220_err
+          and not scaffold._legacy_migration_pending,
+          f"220k: a failed settings rewrite is reported without undoing the finished copy ({_s220_err!r})")
+
+    # --- 220m: no default-preset seeding while a migration is unfinished --
+    _S220Paths.base = str(_s220_tmp / "mseed")
+    _s220_old = _s220_make_legacy(_S220Paths.base)
+    _s220_stock = sorted((scaffold._bundled_root() / "default_presets" / "nmap").glob("*.json"))[0]
+    (_s220_old / "presets" / "nmap" / _s220_stock.name).write_text('{"edited": "by me"}', encoding="utf-8")
+    scaffold._copy_new = _s220_failing_copy(_s220_stock.name)
+    _s220_root, _s220_err = _s220_launch()
+    _s220_pdir = scaffold._presets_dir("nmap")
+    check("retry next launch" in _s220_err and not (_s220_pdir / _s220_stock.name).exists(),
+          "220m: while a copy is pending, the stock preset isn't seeded under the user's preset name")
+    scaffold._copy_new = _s220_saved["_copy_new"]
+    _s220_root, _s220_err = _s220_launch()
+    _s220_pdir = scaffold._presets_dir("nmap")
+    check((_s220_pdir / _s220_stock.name).read_text(encoding="utf-8") == '{"edited": "by me"}',
+          "220m: the next launch copies the user's version under its own name")
+    check(len(list(_s220_pdir.glob("*.json"))) == len(list(_s220_stock.parent.glob("*.json"))) + 1,
+          "220m: and seeds the other defaults once nothing is pending")
+
+    # --- 220n: two legacy folders with the same file name -----------------
+    _S220Paths.base = str(_s220_tmp / "n")
+    _s220_a = _s220_make_legacy(_S220Paths.base, "scaffold")
+    _s220_b = _s220_make_legacy(_S220Paths.base, "scaffold.py")
+    (_s220_b / "presets" / "nmap" / "mine.json").write_text('{"v": "B, newer"}', encoding="utf-8")
+    shutil.copy2(_s220_stock, _s220_a / "presets" / "nmap" / _s220_stock.name)  # untouched default
+    (_s220_b / "presets" / "nmap" / _s220_stock.name).write_text('{"v": "B edit"}', encoding="utf-8")
+    _s220_t = time.time()
+    for _s220_f in _s220_a.rglob("*.json"):
+        os.utime(_s220_f, (_s220_t - 1000, _s220_t - 1000))
+    _s220_ini_path.unlink(missing_ok=True)
+    _s220_ini = scaffold._create_settings()
+    _s220_ini.setValue("cascade/slots", json.dumps([
+        {"tool_path": None, "preset_path": str(_s220_a / "presets" / "nmap" / "mine.json")},
+        {"tool_path": None, "preset_path": str(_s220_b / "presets" / "nmap" / "mine.json")},
+        {"tool_path": None, "preset_path": str(_s220_a / "presets" / "nmap" / _s220_stock.name)}]))
+    _s220_ini.sync()
+    _s220_new, _s220_err = _s220_launch()
+    _s220_ini = scaffold._create_settings()
+    _s220_slots = [s["preset_path"] for s in json.loads(_s220_ini.value("cascade/slots"))]
+    _s220_nmap = _s220_new / "presets" / "nmap"
+    check((_s220_nmap / "mine.json").read_text(encoding="utf-8") == '{"v": "B, newer"}',
+          "220n: the newest version takes the file's own name")
+    check((_s220_nmap / "mine (from scaffold).json").read_bytes()
+          == (_s220_a / "presets" / "nmap" / "mine.json").read_bytes(),
+          "220n: the older version is kept as 'mine (from scaffold).json'")
+    check((_s220_nmap / _s220_stock.name).read_text(encoding="utf-8") == '{"v": "B edit"}'
+          and not list(_s220_nmap.glob(f"{_s220_stock.stem} (from*")),
+          "220n: an edited default beats the untouched copy, which isn't duplicated")
+    check(_s220_slots == [str(_s220_nmap / "mine (from scaffold).json"), str(_s220_nmap / "mine.json"),
+                          str(_s220_a / "presets" / "nmap" / _s220_stock.name)],
+          f"220n: each saved path follows its own file's content (got {_s220_slots})")
+    check("differed from the file already there, so it was saved as presets/nmap/mine (from scaffold).json" in _s220_err, f"220n: stderr mentions the renamed copy ({_s220_err!r})")
+
+    # --- 220o: long file names --------------------------------------------
+    # 2.13.1 could save names up to 251 bytes; a temp suffix or a "(from ...)"
+    # tag must not push a copy past the 255-byte limit. (Windows counts
+    # UTF-16 units and has path-length limits of its own, so POSIX only.)
+    if sys.platform != "win32":
+        _s220_new = _s220_tmp / "o" / "Scaffold"
+        _s220_old = _s220_make_legacy(_s220_tmp / "o")
+        _s220_long = ["x" * 243 + ".json", "\u9375" * 81 + ".json"]  # 248 bytes each
+        _s220_free = "y" * 246 + ".json"  # 251 bytes, nothing in the way
+        (_s220_new / "presets" / "nmap").mkdir(parents=True)
+        for _s220_name in _s220_long + [_s220_free]:
+            (_s220_old / "presets" / "nmap" / _s220_name).write_text("legacy", encoding="utf-8")
+        for _s220_name in _s220_long:
+            (_s220_new / "presets" / "nmap" / _s220_name).write_text("already here", encoding="utf-8")
+        _s220_sum = scaffold._migrate_legacy_data(_s220_new, [_s220_old])
+        _s220_alts = [Path(c).name for c in _s220_sum["conflicts"]]
+        check(_s220_sum["errors"] == [] and (_s220_new / "presets" / "nmap" / _s220_free).is_file(),
+              f"220o: a 251-byte name copies under its own name ({_s220_sum['errors']})")
+        check(len(_s220_alts) == 2
+              and all(len(os.fsencode(n)) <= 255 and n.endswith(" (from scaffold).json") for n in _s220_alts),
+              f"220o: renamed copies of near-limit names are cut to fit 255 bytes ({_s220_alts})")
+        check(all((_s220_new / c).read_text(encoding="utf-8") == "legacy" for c in _s220_sum["conflicts"]),
+              "220o: the cut names hold the legacy content")
+    else:
+        check(True, "220o: skipped on Windows")
+
+    # --- 220p: MOVED.txt never follows a link or replaces a file ----------
+    _s220_pdir = _s220_tmp / "p"
+    _s220_pdir.mkdir()
+    (_s220_pdir / scaffold._MIGRATION_NOTE).write_text("user's own notes", encoding="utf-8")
+    scaffold._write_moved_note(_s220_pdir, _s220_tmp, [])
+    check((_s220_pdir / scaffold._MIGRATION_NOTE).read_text(encoding="utf-8") == "user's own notes",
+          "220p: an existing MOVED.txt is left as it is")
+    if sys.platform != "win32":
+        _s220_victim = _s220_tmp / "victim.txt"
+        _s220_victim.write_text("IMPORTANT", encoding="utf-8")
+        _s220_pdir2 = _s220_tmp / "p2"
+        _s220_pdir2.mkdir()
+        os.symlink(_s220_victim, _s220_pdir2 / scaffold._MIGRATION_NOTE)
+        scaffold._write_moved_note(_s220_pdir2, _s220_tmp, [])
+        check(_s220_victim.read_text(encoding="utf-8") == "IMPORTANT",
+              "220p: a MOVED.txt symlink is not followed")
+    else:
+        check(True, "220p: symlink variant skipped on Windows")
+
+    # --- 220q: per-folder completion --------------------------------------
+    _S220Paths.base = str(_s220_tmp / "q")
+    _s220_a = _s220_make_legacy(_S220Paths.base, "scaffold")
+    _s220_new, _ = _s220_launch()
+    _s220_b = _s220_make_legacy(_S220Paths.base, "scaffold.py")  # appears after the first migration
+    (_s220_b / "tools" / "b_only.json").write_text('{"tool": "b"}', encoding="utf-8")
+    (_s220_b / "cascades" / "c.json").unlink()
+    (_s220_new / "cascades" / "c.json").unlink()  # deleted by the user after the first migration
+    _s220_new, _s220_err = _s220_launch()
+    check((_s220_new / "tools" / "b_only.json").is_file() and (_s220_b / scaffold._MIGRATION_NOTE).is_file()
+          and f"copied 1 file(s) from {_s220_b} " in _s220_err,
+          f"220q: a legacy folder that appears later is still migrated ({_s220_err!r})")
+    check(not (_s220_new / "cascades" / "c.json").exists(),
+          "220q: the first folder isn't migrated again, so a deleted file stays deleted")
+    for _s220_child in _s220_new.iterdir():  # the user resets Scaffold by emptying its folder
+        shutil.rmtree(_s220_child) if _s220_child.is_dir() else _s220_child.unlink()
+    _s220_new, _s220_err = _s220_launch()
+    check(_s220_files(_s220_new) == [] and _s220_err == "",
+          "220q: emptying the data folder doesn't bring the old data back")
+    _S220Paths.base = str(_s220_tmp / "q_ro")
+    _s220_old = _s220_make_legacy(_S220Paths.base)
+    scaffold._write_moved_note = lambda *_a: None  # a read-only legacy folder
+    _s220_new, _ = _s220_launch()
+    scaffold._write_moved_note = _s220_saved["_write_moved_note"]
+    check(not (_s220_old / scaffold._MIGRATION_NOTE).exists()
+          and scaffold._migrate_legacy_data(_s220_new, [_s220_old]) is None,
+          "220q: without MOVED.txt the marker alone records the folder as done")
+
+    # --- 220r: concurrent launches and odd filesystems --------------------
+    _s220_rdir = _s220_tmp / "r"
+    _s220_rdir.mkdir()
+    _s220_src = _s220_rdir / "src.json"
+    _s220_src.write_text('{"v": 1}', encoding="utf-8")
+    _s220_real_link = os.link
+
+    def _s220_lost_race(a, b, *args, **kw):
+        shutil.copy2(_s220_src, b)  # another Scaffold finished the same copy first
+        return _s220_real_link(a, b, *args, **kw)
+
+    with _s220_mock.patch.object(scaffold.os, "link", _s220_lost_race):
+        _s220_res = scaffold._place_legacy_file(_s220_src, "dst.json", "scaffold", _s220_rdir / "new")
+    check(_s220_res == ("dst.json", False) and sorted(p.name for p in (_s220_rdir / "new").iterdir()) == ["dst.json"],
+          f"220r: losing a race to an identical copy is not an error and leaves no temp file ({_s220_res})")
+
+    def _s220_no_links(*_a, **_k):
+        raise PermissionError(1, "hard links not supported")
+
+    with _s220_mock.patch.object(scaffold.os, "link", _s220_no_links):
+        _s220_ok = scaffold._copy_new(_s220_src, _s220_rdir / "fat" / "dst.json")
+    check(_s220_ok and (_s220_rdir / "fat" / "dst.json").read_text(encoding="utf-8") == '{"v": 1}'
+          and sorted(p.name for p in (_s220_rdir / "fat").iterdir()) == ["dst.json"],
+          "220r: filesystems without hard links fall back to a rename")
+
+    def _s220_disk_full(*_a, **_k):
+        raise OSError(28, "No space left on device")
+
+    with _s220_mock.patch.object(scaffold.shutil, "copy2", _s220_disk_full):
+        try:
+            scaffold._copy_new(_s220_src, _s220_rdir / "full" / "dst.json")
+            _s220_raised = False
+        except OSError:
+            _s220_raised = True
+    check(_s220_raised and list((_s220_rdir / "full").iterdir()) == [],
+          "220r: a failed copy raises and removes its temp file")
+    _s220_state = {"roots": {}}
+    scaffold._write_migration_state(_s220_rdir, _s220_state)
+    scaffold._write_migration_state(_s220_rdir, _s220_state)
+    check(not list(_s220_rdir.glob(".mig-*")) and scaffold._read_migration_state(_s220_rdir) == _s220_state,
+          "220r: the marker is written through a private temp file")
+
+    # --- 220l: source mode never migrates ---------------------------------
+    scaffold._is_installed_mode = lambda: False
+    scaffold._migrate_legacy_data = _s220_boom
+    scaffold._legacy_migration_checked = False
+    check(scaffold._user_data_root() == Path(scaffold.__file__).parent,
+          "220l: source mode still uses the script folder and runs no migration")
+finally:
+    scaffold.QStandardPaths = _s220_saved["QStandardPaths"]
+    scaffold.QApplication = _s220_saved["QApplication"]
+    scaffold._is_installed_mode = _s220_saved["_is_installed_mode"]
+    scaffold._create_settings = _s220_saved["_create_settings"]
+    scaffold._migrate_legacy_data = _s220_saved["_migrate_legacy_data"]
+    scaffold._copy_new = _s220_saved["_copy_new"]
+    scaffold._write_moved_note = _s220_saved["_write_moved_note"]
+    scaffold._legacy_migration_checked = _s220_saved["checked"]
+    scaffold._legacy_migration_pending = _s220_saved["pending"]
+    scaffold._FOLD_PATH_CASE = _s220_saved["fold"]
+    shutil.rmtree(_s220_tmp, ignore_errors=True)
+
+# --- 220s: a headless run migrates before it snapshots settings ----------
+# Otherwise the snapshot holds the old paths and the restore at exit puts
+# them back.
+_s220_order = []
+_s220_saved_udr = scaffold._user_data_root
+_s220_saved_snap = scaffold.CascadeHeadlessRunner._snapshot_settings
+
+
+class _S220Stop(Exception):
+    pass
+
+
+def _s220_snap(self):
+    _s220_order.append("snapshot")
+    raise _S220Stop
+
+
+try:
+    scaffold._user_data_root = lambda: _s220_order.append("data root") or Path(".")
+    scaffold.CascadeHeadlessRunner._snapshot_settings = _s220_snap
+    try:
+        scaffold.CascadeHeadlessRunner("x.json", {}, 1, None).run()
+    except _S220Stop:
+        pass
+finally:
+    scaffold._user_data_root = _s220_saved_udr
+    scaffold.CascadeHeadlessRunner._snapshot_settings = _s220_saved_snap
+check(_s220_order[:2] == ["data root", "snapshot"],
+      f"220s: headless run resolves the data folder before its settings snapshot (got {_s220_order})")
 
 # =====================================================================
 # Final cleanup

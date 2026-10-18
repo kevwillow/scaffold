@@ -39,6 +39,7 @@ __version__ = "2.13.1"
 
 import atexit
 import datetime
+import filecmp
 import hashlib
 import html
 import json
@@ -3012,34 +3013,467 @@ def _bundled_root() -> Path:
     return Path(__file__).parent / "scaffold_data"
 
 
+def _app_data_base() -> Path | None:
+    """Return the per-user application-data folder with no app name on it.
+
+    QStandardPaths.AppDataLocation is <base>/<organization>/<application>.
+    Scaffold never sets either name, so Qt uses the executable's name once a
+    QApplication exists ("scaffold", "python", or "Python" on macOS) and
+    nothing before. Strip whatever Qt appended so the data folder doesn't
+    depend on how Scaffold was launched. If the path doesn't end the way
+    expected, it is returned as is, which keeps the pre-2.13.2 location.
+    """
+    loc = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
+    if not loc:
+        return None
+    base = Path(loc)
+    for part in (QApplication.applicationName(), QApplication.organizationName()):
+        if part and base.name == part:
+            base = base.parent
+    return base
+
+
+# Up to 2.13.1 an installed Scaffold stored data in <base>/<exe name>/Scaffold
+# (see _app_data_base). The name was whatever Qt saw as the executable:
+# "scaffold", "scaffold.py" (python -m scaffold), "Python" (macOS framework
+# builds), and on Windows "python", "pythonw", "python3", "pythonw3",
+# "python3t" and so on, since Qt cuts the name at its first dot there.
+_LEGACY_NAME_RE = re.compile(r"scaffold(\.py)?|pythonw?(\d+(\.\d+)*)?t?", re.IGNORECASE)
+_MIGRATION_MARKER = ".migrated_from_legacy.json"
+_MIGRATION_NOTE = "MOVED.txt"
+_MIGRATION_TRIES = 3  # launches that retry a failed copy before giving up on it
+_legacy_migration_checked = False
+_legacy_migration_pending = False  # a copy failed; _presets_dir holds off seeding
+_FOLD_PATH_CASE = sys.platform in ("darwin", "win32")  # case-insensitive by default
+
+
+def _path_key(path) -> str:
+    """Spelling of a path for comparisons, folded on case-insensitive systems."""
+    s = os.path.normcase(str(path))
+    return s.casefold() if _FOLD_PATH_CASE else s
+
+
+def _legacy_data_roots(base: Path) -> list[Path]:
+    """Existing pre-2.13.2 data folders under base, one per real folder.
+
+    A legacy folder that is itself a symlink is followed: it is the user's
+    own data, and 2.13.1 followed it too.
+    """
+    extras = {QApplication.applicationName(), Path(sys.argv[0]).name if sys.argv else ""} - {""}
+    try:
+        children = sorted(base.iterdir())
+    except OSError:
+        return []
+    roots: list[Path] = []
+    for child in children:
+        if not (_LEGACY_NAME_RE.fullmatch(child.name) or child.name in extras):
+            continue
+        candidate = child / "Scaffold"
+        try:
+            if not candidate.is_dir():
+                continue
+            # Only folders Scaffold itself created count as legacy data.
+            if not any((candidate / sub).exists() for sub in ("presets", "cascades", "tools")):
+                continue
+            if any(os.path.samefile(candidate, seen) for seen in roots):
+                continue  # same folder under another spelling (case-insensitive FS)
+        except OSError:
+            continue
+        roots.append(candidate)
+    return roots
+
+
+def _same_content(a: Path, b: Path) -> bool:
+    """True if a and b hold the same bytes (or are links to the same place)."""
+    try:
+        if a.is_symlink() or b.is_symlink():
+            return a.is_symlink() and b.is_symlink() and os.readlink(a) == os.readlink(b)
+        return filecmp.cmp(a, b, shallow=False)
+    except OSError:
+        return False
+
+
+def _copy_new(src: Path, target: Path) -> bool:
+    """Copy src to target unless target exists. Never replaces anything.
+
+    The copy goes to a private temp file that is hard-linked into place, so
+    a crash can't leave a half-written file under the real name and two
+    Scaffolds starting at once can't clobber each other. Returns False if
+    target already exists. Symlinks are recreated as links, not followed.
+    """
+    if os.path.lexists(target):
+        return False
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if src.is_symlink():
+        try:
+            os.symlink(os.readlink(src), target)
+        except FileExistsError:
+            return False
+        return True
+    fd, tmp = tempfile.mkstemp(prefix=".mig-", suffix=".tmp", dir=target.parent)
+    os.close(fd)
+    try:
+        shutil.copy2(src, tmp)
+        try:
+            os.link(tmp, target)
+        except FileExistsError:
+            return False
+        except OSError:
+            # no hard links here (FAT, some network shares): rename instead
+            if os.path.lexists(target):
+                return False
+            os.replace(tmp, target)
+        return True
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def _conflict_name(name: str, label: str, n: int) -> str:
+    """'scan.json' -> 'scan (from scaffold.py).json', cut to fit 255 bytes."""
+    p = Path(name)
+    stem, suffix = p.stem, p.suffix
+    tag = f" (from {label})" if n == 1 else f" (from {label} {n})"
+    while stem and len(os.fsencode(stem + tag + suffix)) > 255:
+        stem = stem[:-1]
+    return stem + tag + suffix
+
+
+def _is_stock_default(src: Path, rel: str) -> bool:
+    """True if src is an unedited copy of a preset Scaffold ships."""
+    parts = rel.split("/")
+    if len(parts) != 3 or parts[0] != "presets":
+        return False
+    stock = _bundled_root() / "default_presets" / parts[1] / parts[2]
+    return stock.is_file() and _same_content(src, stock)
+
+
+def _place_legacy_file(src: Path, rel: str, label: str, new_root: Path) -> tuple[str | None, bool]:
+    """Copy one legacy file into new_root without replacing anything there.
+
+    Returns (where its content now is, relative to new_root, or None; whether
+    a copy was made). A file matching what is already there isn't copied
+    again. A different version gets its own name, e.g. "scan (from
+    scaffold.py).json", so no version is hidden. The exception is an
+    untouched copy of a bundled default preset, which Scaffold still ships.
+    """
+    if _copy_new(src, new_root / rel):
+        return rel, True
+    if _same_content(src, new_root / rel):
+        return rel, False
+    if _is_stock_default(src, rel):
+        return None, False
+    folder, _, name = rel.rpartition("/")
+    for n in range(1, 100):
+        alt = _conflict_name(name, label, n)
+        alt = f"{folder}/{alt}" if folder else alt
+        if _copy_new(src, new_root / alt):
+            return alt, True
+        if _same_content(src, new_root / alt):
+            return alt, False
+    raise OSError(f"no free name for another version of {rel}")
+
+
+def _plan_legacy_copy(roots: list[Path], errors: dict) -> list[tuple[str, list[tuple[Path, Path]]]]:
+    """Every file under the roots by relative path, newest version first.
+
+    Newest by mtime: copy2 keeps mtimes, so a default seeded by an older
+    Scaffold keeps the package's old date and a preset the user saved wins.
+    Regular files come before symlinks, so a symlinked folder recreated from
+    one root can't redirect files copied from another. Folders that can't
+    be listed are reported in errors[str(root)].
+    """
+    groups: tuple[dict, dict] = ({}, {})  # regular files, symlinks
+    for i, root in enumerate(roots):
+        def _walk_error(e, key=str(root)):
+            errors[key].append(f"{e.filename}: {e.strerror}")
+        for dirpath, dirnames, filenames in os.walk(root, onerror=_walk_error):
+            here = Path(dirpath)
+            # os.walk doesn't descend into symlinked folders; copy the link itself.
+            for name in filenames + [d for d in dirnames if (here / d).is_symlink()]:
+                src = here / name
+                rel = src.relative_to(root).as_posix()
+                if rel in (_MIGRATION_NOTE, _MIGRATION_MARKER):
+                    continue
+                try:
+                    mtime = src.lstat().st_mtime
+                except OSError:
+                    mtime = 0.0
+                groups[src.is_symlink()].setdefault(rel, []).append((-mtime, i, root, src))
+    return [(rel, [(root, src) for _, _, root, src in sorted(g[rel])])
+            for g in groups for rel in sorted(g)]
+
+
+def _read_migration_state(new_root: Path) -> dict:
+    """The marker in new_root: {"roots": {legacy root: record}}, or an empty one."""
+    try:
+        data = json.loads((new_root / _MIGRATION_MARKER).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = None
+    if not isinstance(data, dict) or not isinstance(data.get("roots"), dict):
+        return {"roots": {}}
+    return data
+
+
+def _state_key(state: dict, root: Path) -> str:
+    """The key state["roots"] uses for root, whatever its spelling there."""
+    want = _path_key(root)
+    return next((k for k in state["roots"] if _path_key(k) == want), str(root))
+
+
+def _legacy_root_done(root: Path, state: dict) -> bool:
+    record = state["roots"].get(_state_key(state, root))
+    return os.path.lexists(root / _MIGRATION_NOTE) or (isinstance(record, dict) and record.get("done") is True)
+
+
+def _write_migration_state(new_root: Path, state: dict) -> None:
+    """Write the marker through a private temp file, so concurrent launches can't collide."""
+    fd, tmp = tempfile.mkstemp(prefix=".mig-", suffix=".tmp", dir=new_root)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, new_root / _MIGRATION_MARKER)
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def _write_moved_note(root: Path, new_root: Path, failed: list[str]) -> None:
+    """Leave MOVED.txt in a legacy folder. Never follows a link or replaces a file."""
+    text = (f"Scaffold {__version__} copied the contents of this folder to:\n"
+            f"  {new_root}\n\n"
+            "Scaffold doesn't read this folder anymore. It's kept as a backup;\n"
+            "you can delete it once you've checked your presets and cascades.\n")
+    if failed:
+        text += "\nThese could not be copied and exist only here:\n" + "".join(f"  {f}\n" for f in failed)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(root / _MIGRATION_NOTE, flags, 0o600)
+    except OSError:
+        return  # already there, or a read-only folder; the marker records completion
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def _migrate_legacy_data(new_root: Path, legacy_roots: list[Path]) -> dict | None:
+    """Copy pre-2.13.2 user data into new_root, once per legacy folder.
+
+    Copies (never moves or overwrites) each legacy folder's files, records
+    where each one went in a marker in new_root, then leaves MOVED.txt in
+    the old folder. A folder with MOVED.txt, or marked done, is skipped, so
+    emptying new_root later doesn't bring old data back. If a copy fails the
+    folder is retried on the next launch, up to _MIGRATION_TRIES launches;
+    after that the files that still fail are listed in MOVED.txt and left
+    where they are. Returns a summary, or None if there was nothing to do.
+    """
+    state = _read_migration_state(new_root)
+
+    def _is_new_root(p: Path) -> bool:
+        try:
+            return os.path.samefile(p, new_root)
+        except OSError:
+            return False  # a folder that can't be compared isn't the destination
+
+    todo = [p for p in legacy_roots if not _is_new_root(p) and not _legacy_root_done(p, state)]
+    if not todo:
+        return None
+    summary = {"migrated_from": [str(p) for p in todo], "copied": 0, "conflicts": [],
+               "errors": [], "pending": True}
+    try:
+        new_root.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        summary["errors"] = [f"{new_root}: {e}"]
+        return summary
+    errors: dict[str, list[str]] = {str(p): [] for p in todo}
+    files: dict[str, dict[str, str]] = {str(p): {} for p in todo}
+    for rel, sources in _plan_legacy_copy(todo, errors):
+        for root, src in sources:
+            try:
+                dest, copied = _place_legacy_file(src, rel, root.parent.name, new_root)
+            except OSError as e:
+                errors[str(root)].append(f"{src}: {e}")
+                continue
+            if dest is not None:
+                files[str(root)][rel] = dest
+            summary["copied"] += copied
+            if copied and dest != rel:
+                summary["conflicts"].append(dest)
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+    finished = []
+    for root in todo:
+        key = _state_key(state, root)
+        old = state["roots"].pop(key, None)
+        tries = old.get("tries", 0) if isinstance(old, dict) else 0
+        tries = (tries if isinstance(tries, int) else 0) + 1
+        failed = errors[str(root)]
+        done = not failed or tries >= _MIGRATION_TRIES
+        state["roots"][str(root)] = {"done": done, "tries": tries, "files": files[str(root)],
+                                     "errors": failed, "scaffold_version": __version__, "time": now}
+        if done:
+            finished.append((root, failed))
+        summary["errors"] += failed
+    try:
+        _write_migration_state(new_root, state)
+    except OSError as e:
+        summary["errors"].append(f"{new_root / _MIGRATION_MARKER}: {e}")
+        return summary
+    # MOVED.txt only after the marker holds the record of where files went.
+    for root, failed in finished:
+        _write_moved_note(root, new_root, failed)
+    summary["pending"] = len(finished) < len(todo)
+    return summary
+
+
+def _remap_legacy_path(value, roots: list[tuple[Path, dict]], new_root: Path):
+    """Return value pointed at its copy in new_root, or value unchanged.
+
+    roots pairs each legacy folder with its marker record of where its files
+    went (keys folded with _path_key). A path is repointed only to the copy
+    of that same file, and only if the old file is gone or still has the
+    same content, so a saved path never ends up on a different version.
+    """
+    if not isinstance(value, str) or not value:
+        return value
+    old = Path(value)
+    parts = old.parts
+    if ".." in parts:
+        return value
+    folded = [_path_key(p) for p in parts]
+    for root, files in roots:
+        n = len(root.parts)
+        if len(parts) <= n or folded[:n] != [_path_key(p) for p in root.parts]:
+            continue
+        dest = files.get(_path_key("/".join(parts[n:])))
+        if not isinstance(dest, str) or Path(dest).anchor or ".." in Path(dest).parts:
+            continue  # the marker is a user-editable file; keep results inside new_root
+        moved = new_root / dest
+        if moved.is_file() and (not os.path.lexists(old) or _same_content(old, moved)):
+            return str(moved)
+    return value
+
+
+def _rewrite_legacy_paths(settings: QSettings, state: dict, new_root: Path) -> int:
+    """Repoint saved absolute paths (last tool, recent tools, cascade slots)
+    from legacy data folders to their copies in new_root.
+
+    Uses the marker's record, so it still works after the old folder is
+    deleted. Idempotent, and runs on every launch: an older Scaffold sharing
+    these settings, or a headless run restoring them, can put old paths
+    back. Returns the number of paths changed.
+    """
+    roots = []
+    for key, record in state["roots"].items():
+        moved = record.get("files") if isinstance(record, dict) else None
+        if isinstance(moved, dict):
+            roots.append((Path(key), {_path_key(k): v for k, v in moved.items() if isinstance(k, str)}))
+    if not roots:
+        return 0
+    changed = 0
+    last = settings.value("session/last_tool")
+    new_last = _remap_legacy_path(last, roots, new_root)
+    if new_last != last:
+        settings.setValue("session/last_tool", new_last)
+        changed += 1
+    for key in ("picker/recent_tools", "cascade/slots"):
+        raw = settings.value(key)
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(data, list):
+            continue
+        key_changed = 0
+        if key == "picker/recent_tools":
+            remapped = [_remap_legacy_path(p, roots, new_root) for p in data]
+            key_changed = sum(1 for a, b in zip(data, remapped) if a != b)
+            data = remapped
+        else:
+            for slot in data:
+                if isinstance(slot, dict):
+                    for field in ("tool_path", "preset_path"):
+                        if field in slot:
+                            moved = _remap_legacy_path(slot[field], roots, new_root)
+                            if moved != slot[field]:
+                                slot[field] = moved
+                                key_changed += 1
+        if key_changed:
+            settings.setValue(key, json.dumps(data))
+            changed += key_changed
+    return changed
+
+
+def _run_legacy_migration(base: Path, new_root: Path) -> None:
+    """Copy older data into new_root, repoint saved paths, report on stderr."""
+    global _legacy_migration_pending
+    # broadly defensive: a migration problem must never stop Scaffold from
+    # starting; the old data stays where it was.
+    try:
+        result = _migrate_legacy_data(new_root, _legacy_data_roots(base))
+    except Exception as e:
+        result = {"copied": 0, "conflicts": [], "errors": [f"migration failed: {e}"], "pending": True}
+    try:
+        state = _read_migration_state(new_root)
+        if state["roots"]:
+            _rewrite_legacy_paths(_create_settings(), state, new_root)
+    except Exception as e:
+        print(f"Scaffold: could not update saved paths for {new_root}: {e}", file=sys.stderr)
+    if not result:
+        return
+    _legacy_migration_pending = result["pending"]
+    problems = result["errors"]
+    if problems and result["pending"]:
+        print(f"Scaffold: could not finish copying older data into {new_root} "
+              f"({len(problems)} problem(s)); it will retry next launch: "
+              + "; ".join(problems[:3]), file=sys.stderr)
+    elif problems:
+        print(f"Scaffold: gave up copying {len(problems)} older file(s) after {_MIGRATION_TRIES} "
+              "tries; they are still in the old folder, listed in its MOVED.txt: "
+              + "; ".join(problems[:3]), file=sys.stderr)
+    if result["copied"]:
+        line = (f"Scaffold: copied {result['copied']} file(s) from "
+                f"{', '.join(result['migrated_from'])} to {new_root}; "
+                "the old folder is kept as a backup.")
+        n = len(result["conflicts"])
+        if n == 1:
+            line += " One differed from the file already there, so it was saved as " + result["conflicts"][0] + "."
+        elif n:
+            line += (f" {n} differed from files already there, so they were saved with "
+                     "'(from ...)' added to the name.")
+        print(line, file=sys.stderr)
+
+
 def _user_data_root() -> Path:
     """Return the writable user-data directory (presets/, cascades/, user tools/).
 
     Source / portable mode: scaffold.py's parent directory (today's
     behavior).
 
-    Installed mode: QStandardPaths.AppDataLocation/Scaffold/ — platform
-    standard application data location:
+    Installed mode: <per-user app data>/Scaffold/ — platform standard
+    application data location:
       Linux:   ~/.local/share/Scaffold/
       macOS:   ~/Library/Application Support/Scaffold/
       Windows: %APPDATA%/Scaffold/
+    On first use it copies data left by older versions (which used e.g.
+    ~/.local/share/scaffold/Scaffold) into that folder; see
+    _migrate_legacy_data.
 
     The directory is created if missing.
     """
+    global _legacy_migration_checked
     if _is_installed_mode():
-        loc = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
-        if loc:
-            d = Path(loc)
-            # AppDataLocation appends QCoreApplication.applicationName(). Scaffold
-            # never sets it, so before a QApplication exists it is empty, and
-            # after one exists Qt falls back to the executable name ("scaffold"
-            # for the console script). Append "Scaffold" ourselves unless it's
-            # already there. In practice this means an installed GUI run uses
-            # e.g. ~/.local/share/scaffold/Scaffold on Linux; changing that
-            # would orphan existing users' presets, so it needs a migration.
-            if d.name != "Scaffold":
-                d = d / "Scaffold"
+        base = _app_data_base()
+        if base is not None:
+            d = base if base.name == "Scaffold" else base / "Scaffold"
             d.mkdir(parents=True, exist_ok=True)
+            if not _legacy_migration_checked:
+                _legacy_migration_checked = True
+                _run_legacy_migration(base, d)
             return d
     return Path(__file__).parent
 
@@ -3115,9 +3549,11 @@ def _presets_dir(tool_name: str) -> Path:
     if d.exists() and not d.is_dir():
         raise RuntimeError(f"Expected a directory but found a file at: {d}")
     d.mkdir(parents=True, exist_ok=True)
-    # Seed from bundled defaults (skip files the user already has)
+    # Seed from bundled defaults (skip files the user already has). Not while
+    # older data is still being copied in: a default seeded into a gap would
+    # take the name of the user's own edited copy.
     defaults = _bundled_root() / "default_presets" / tool_name
-    if defaults.is_dir():
+    if defaults.is_dir() and not _legacy_migration_pending:
         for src in defaults.glob("*.json"):
             dest = d / src.name
             if not dest.exists():
@@ -5129,6 +5565,9 @@ class CascadeHeadlessRunner:
     def run(self) -> int:
         app = QApplication.instance() or QApplication(sys.argv[:1])
 
+        # Run any pending data-folder migration first, so the snapshot (and
+        # the restore at exit) holds the repointed paths, not the old ones.
+        _user_data_root()
         self._snapshot_settings()
         # Don't let the hidden window reopen the GUI's last tool: loading it
         # would show that tool's crash-recovery prompt and consume the file.

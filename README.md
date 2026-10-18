@@ -6,7 +6,7 @@ Scaffold: Your CLI Tools, but with Buttons
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)
 ![Single File](https://img.shields.io/badge/architecture-single%20file-blue)
 ![Lines of Code](https://img.shields.io/badge/lines-12%2C200%2B-informational)
-![Tests](https://img.shields.io/badge/tests-3%2C966%20assertions-brightgreen)
+![Tests](https://img.shields.io/badge/tests-4%2C045%20assertions-brightgreen)
 ![Test Suites](https://img.shields.io/badge/test%20suites-6-brightgreen)
 ![Bundled Tools](https://img.shields.io/badge/bundled%20tools-28%20schemas-orange)
 ![No Shell](https://img.shields.io/badge/shell%3DTrue-never-critical)
@@ -85,6 +85,20 @@ application data folder:
 Inside it you'll find `presets/`, `cascades/` and `tools/`. Drop a `*.json`
 schema into `tools/` and it shows up in the picker the next time you launch.
 From a source clone, the same folders are created next to `scaffold.py`.
+
+> **Upgrading from 2.13.1 or earlier?** Older pip installs actually kept data
+> one folder deeper, named after the program that launched Scaffold:
+> `~/.local/share/scaffold/Scaffold/` on Linux,
+> `~/Library/Application Support/Python/Scaffold/` on macOS and
+> `%APPDATA%\python\Scaffold\` on Windows. The first time a newer version
+> starts, it copies your presets, cascades and tools into the folder above
+> and updates your recent tools and cascade slots to match. Nothing is
+> moved, overwritten or deleted. If you launched Scaffold more than one way
+> and two old folders have different files with the same name, the newest
+> keeps the name and the other is saved next to it with `(from <folder>)`
+> added, so you don't lose either one. Each old folder stays as a backup
+> with a `MOVED.txt` note in it, and you can delete it once you've checked
+> everything is there.
 
 ### Portable mode
 
@@ -466,7 +480,7 @@ I built Scaffold the way a real team would build software, just with an AI writi
 
 1. **Architecture first.** It started with a design document for the widget type system, the schema format and the command assembly pipeline, before any code was written.
 2. **Staged deliverables.** It was built in phases: core engine, widget rendering, command execution, presets, subcommands, dark mode, elevated execution, UI polish, and the schema generation prompt.
-3. **Tests alongside features.** Tests were planned with each stage instead of added at the end. The suites (3,966 assertions across 6 suites) were written to check each feature as it was delivered.
+3. **Tests alongside features.** Tests were planned with each stage instead of added at the end. The suites (4,045 assertions across 6 suites) were written to check each feature as it was delivered.
 4. **Code review cycles.** Once the core was stable, the code went through several review passes: cleanup, an error-handling audit, performance profiling and linting.
 5. **A lot of iteration.** Most features took several rounds of build, test and fix. The dark mode scrollbar alone went through QSS, then QProxyStyle, and finally native `setColorScheme` before it worked right.
 6. **Manual QA on every release.** I tested every version by hand on real tools before tagging it.
