@@ -38,6 +38,7 @@ Minimum Python version: 3.10
 __version__ = "2.13.2"
 
 import atexit
+import codecs
 import datetime
 import filecmp
 import hashlib
@@ -6034,7 +6035,7 @@ class CascadeHeadlessRunner:
             proc = mw.process
             if proc is None:
                 return
-            text = bytes(proc.readAllStandardOutput()).decode("utf-8", errors="replace")
+            text = mw._stdout_decoder.decode(bytes(proc.readAllStandardOutput()))
             mw._last_run_stdout = _capture_tail(mw._last_run_stdout, text)
             runner._stream("stdout", text)
 
@@ -6042,7 +6043,7 @@ class CascadeHeadlessRunner:
             proc = mw.process
             if proc is None:
                 return
-            text = bytes(proc.readAllStandardError()).decode("utf-8", errors="replace")
+            text = mw._stderr_decoder.decode(bytes(proc.readAllStandardError()))
             mw._last_run_stderr = _capture_tail(mw._last_run_stderr, text)
             runner._stream("stderr", text)
 
@@ -10027,6 +10028,7 @@ class MainWindow(QMainWindow):
         self._error_reported = False
         self._timed_out = False
         self._run_line_count = 0
+        self._reset_stream_decoders()
         self._elevated_run = False
         self._run_start_time: float | None = None
         self._force_kill_timer = QTimer(self)
@@ -10564,6 +10566,15 @@ class MainWindow(QMainWindow):
         # Cascade sidebar
         if hasattr(self, "cascade_dock"):
             self.cascade_dock.update_theme()
+
+    def _reset_stream_decoders(self) -> None:
+        """Start fresh UTF-8 decoders for a run's stdout and stderr.
+
+        Incremental, so a multi-byte character split across two reads
+        decodes correctly instead of becoming two U+FFFD characters.
+        """
+        self._stdout_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self._stderr_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
     def _set_output_summary(self, state: tuple | None) -> None:
         """Show (status, kind, elapsed_s, lines) beside the Output header, or hide it."""
@@ -12291,6 +12302,7 @@ class MainWindow(QMainWindow):
         self._last_run_stdout = ""
         self._last_run_stderr = ""
         self._run_line_count = 0
+        self._reset_stream_decoders()
         self._set_output_summary(None)
         self._run_start_time = time.monotonic()
         self.run_btn.setText("Stop")
@@ -12323,7 +12335,7 @@ class MainWindow(QMainWindow):
         if not self.process:
             return
         data = self.process.readAllStandardOutput()
-        text = bytes(data).decode("utf-8", errors="replace")
+        text = self._stdout_decoder.decode(bytes(data))
         self._last_run_stdout = _capture_tail(self._last_run_stdout, text)
         self._run_line_count += text.count("\n")
         self._append_to_buffer(text, OUTPUT_FG)
@@ -12335,7 +12347,7 @@ class MainWindow(QMainWindow):
         if not self.process:
             return
         data = self.process.readAllStandardError()
-        text = bytes(data).decode("utf-8", errors="replace")
+        text = self._stderr_decoder.decode(bytes(data))
         self._last_run_stderr = _capture_tail(self._last_run_stderr, text)
         self._run_line_count += text.count("\n")
         self._append_to_buffer(text, COLOR_WARN)

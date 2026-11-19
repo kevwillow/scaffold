@@ -32409,6 +32409,49 @@ app.processEvents()
 
 
 # =====================================================================
+# Section 230
+# =====================================================================
+print("\n--- Section 230: UTF-8 split across reads decodes correctly (C2) ---")
+
+# Each read was decoded on its own, so a multi-byte character split
+# across two reads became two U+FFFD replacement characters.
+_s230_win = scaffold.MainWindow(tool_path=str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json"))
+app.processEvents()
+
+
+class _S230FakeProc:
+    def __init__(self, out, err):
+        self.out, self.err = list(out), list(err)
+
+    def readAllStandardOutput(self):
+        return self.out.pop(0)
+
+    def readAllStandardError(self):
+        return self.err.pop(0)
+
+
+_s230_win._reset_stream_decoders()
+_s230_win._last_run_stdout = ""
+_s230_win._last_run_stderr = ""
+_s230_win._output_buffer.clear()
+# "é" is C3 A9 and "€" is E2 82 AC; split each across two reads
+_s230_win.process = _S230FakeProc([b"caf\xc3", b"\xa9\n"], [b"\xe2\x82", b"\xac\n"])
+_s230_win._on_stdout_ready()
+_s230_win._on_stdout_ready()
+_s230_win._on_stderr_ready()
+_s230_win._on_stderr_ready()
+_s230_win.process = None
+check(_s230_win._last_run_stdout == "café\n", f"230a: stdout decodes across reads ({_s230_win._last_run_stdout!r})")
+check(_s230_win._last_run_stderr == "€\n", f"230b: stderr decodes across reads ({_s230_win._last_run_stderr!r})")
+check("�" not in "".join(t for t, _ in _s230_win._output_buffer),
+      "230c: no replacement characters reach the output panel")
+_s230_win._output_buffer.clear()
+_s230_win.close()
+_s230_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 shutil.rmtree(_s200_tmpdir, ignore_errors=True)
