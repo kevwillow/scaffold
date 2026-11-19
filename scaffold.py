@@ -1448,6 +1448,24 @@ def _required_color() -> str:
     return _c("required")
 
 
+def _plain_tooltip(text: str) -> str:
+    """Return a tooltip that shows text literally.
+
+    Qt guesses rich text for tooltips, so text from a schema, preset or
+    cascade file is escaped and wrapped; pre-wrap keeps its line breaks.
+    """
+    return f"<p style='white-space: pre-wrap;'>{html.escape(text)}</p>"
+
+
+def _no_markup(value, limit: int = 80) -> str:
+    """Shorten a file-supplied value for a message box and defuse markup.
+
+    QMessageBox guesses rich text from a '<' tag, and the static helpers
+    can't be switched to plain text, so '<' is shown as a look-alike.
+    """
+    return str(value)[:limit].replace("<", "\u2039")
+
+
 def _field_label_html(arg: dict) -> str:
     """Return the rich-text form label for an arg: its name with required,
     dangerous and deprecated markers, and the real CLI flag on a second line.
@@ -1627,11 +1645,13 @@ class ToolForm(QWidget):
         root.setContentsMargins(8, 8, 8, 8)
 
         header = QLabel(self.data["tool"])
+        header.setTextFormat(Qt.TextFormat.PlainText)
         header.setStyleSheet("font-size: 16px; font-weight: bold;")
         root.addWidget(header)
 
         if self.data["description"]:
             desc = QLabel(self.data["description"])
+            desc.setTextFormat(Qt.TextFormat.PlainText)
             desc.setWordWrap(True)
             root.addWidget(desc)
 
@@ -2125,6 +2145,7 @@ class ToolForm(QWidget):
 
         else:
             w = QLabel(f"[unsupported type: {t}]")
+            w.setTextFormat(Qt.TextFormat.PlainText)
 
         if arg["description"]:
             w.setToolTip(self._build_tooltip(arg))
@@ -4190,7 +4211,7 @@ class ToolPicker(QWidget):
                 if error:
                     for item in (status_item, name_item, desc_item, path_item):
                         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-                        item.setToolTip(error)
+                        item.setToolTip(_plain_tooltip(error))
                 elif not available:
                     # Dim unavailable tools slightly but keep them selectable
                     for item in (name_item, desc_item, path_item):
@@ -6816,7 +6837,7 @@ class CascadeVariableDialog(QDialog):
             w.setRange(-999999, 999999)
             w.setValue(0)
             if description:
-                w.setToolTip(description)
+                w.setToolTip(_plain_tooltip(description))
             self._inputs[flag] = w
             return w
 
@@ -6825,7 +6846,7 @@ class CascadeVariableDialog(QDialog):
             w.setRange(-999999.0, 999999.0)
             w.setValue(0.0)
             if description:
-                w.setToolTip(description)
+                w.setToolTip(_plain_tooltip(description))
             self._inputs[flag] = w
             return w
 
@@ -7972,6 +7993,7 @@ class CascadeSidebar(QDockWidget):
         content_layout.addLayout(chain_controls)
 
         self._loaded_label = QLabel("")
+        self._loaded_label.setTextFormat(Qt.TextFormat.PlainText)
         self._loaded_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._loaded_label.setStyleSheet(
             "color: gray; font-size: 10px; padding: 2px;"
@@ -8843,7 +8865,7 @@ class CascadeSidebar(QDockWidget):
                         tip_lines.append(f"Description: {desc}")
                     tip_lines.append(f"Path: {preset_path}")
                 tip_lines.append(f"Delay: {delay}s")
-                btn.setToolTip("\n".join(tip_lines))
+                btn.setToolTip(_plain_tooltip("\n".join(tip_lines)))
                 self._style_slot_button(btn, empty=False, arrow_btn=arrow, remove_btn=remove)
             else:
                 btn.setText("(empty)")
@@ -11222,10 +11244,10 @@ class MainWindow(QMainWindow):
         if fmt is not None and fmt != "scaffold_schema":
             QMessageBox.critical(
                 self, "Wrong File Format",
-                f'This file has "_format": "{fmt}" \u2014 '
+                f'This file has "_format": "{_no_markup(fmt)}" \u2014 '
                 f"it appears to be a preset, not a tool schema."
                 if fmt == "scaffold_preset"
-                else f'This file has "_format": "{fmt}" \u2014 '
+                else f'This file has "_format": "{_no_markup(fmt)}" \u2014 '
                 f"it is not a Scaffold tool schema.",
             )
             return
@@ -11697,10 +11719,10 @@ class MainWindow(QMainWindow):
         if fmt is not None and fmt != "scaffold_preset":
             QMessageBox.critical(
                 self, "Wrong File Format",
-                f'This file has "_format": "{fmt}" \u2014 '
+                f'This file has "_format": "{_no_markup(fmt)}" \u2014 '
                 f"it appears to be a tool schema, not a preset."
                 if fmt == "scaffold_schema"
-                else f'This file has "_format": "{fmt}" \u2014 '
+                else f'This file has "_format": "{_no_markup(fmt)}" \u2014 '
                 f"it is not a Scaffold preset.",
             )
             return
@@ -11820,10 +11842,10 @@ class MainWindow(QMainWindow):
         if fmt is not None and fmt != "scaffold_preset":
             QMessageBox.critical(
                 self, "Wrong File Format",
-                f'This file has "_format": "{fmt}" \u2014 '
+                f'This file has "_format": "{_no_markup(fmt)}" \u2014 '
                 f"it appears to be a tool schema, not a preset."
                 if fmt == "scaffold_schema"
-                else f'This file has "_format": "{fmt}" \u2014 '
+                else f'This file has "_format": "{_no_markup(fmt)}" \u2014 '
                 f"it is not a Scaffold preset.",
             )
             return

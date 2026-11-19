@@ -30,6 +30,12 @@ All notable changes to Scaffold are documented here.
 
   Covered by `test_functional.py` §225. §138's simulated mid-write failure now injects at `os.fdopen`, which is what the atomic write uses.
 - **A preset or cascade file whose JSON isn't an object no longer crashes Scaffold.** Loading, overwriting or restoring from history a file containing `[]`, `"x"` or a number raised an uncaught `AttributeError`. `_read_json_file` now rejects a non-object top level with the same error as unparseable JSON, which every caller already handles. Covered by `test_functional.py` §226.
+- **Text from schema, preset and cascade files can no longer render as markup.** Qt guesses whether label, tooltip and message-box text is HTML, so a description like `<img src=...>` or `<a href>` could load local images or spoof parts of the window. Affected:
+  - the schema name and description labels and the cascade "Loaded:" label, which are now plain text
+  - the picker's schema-error tooltip, cascade variable descriptions and cascade slot tooltips (preset descriptions), which are now escaped
+  - the `_format` value quoted in "Wrong File Format" dialogs, which is shortened with `<` shown as `‹`
+
+  Covered by `test_functional.py` §227.
 
 ## [v2.13.2] — Unreleased
 

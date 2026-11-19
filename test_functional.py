@@ -32297,6 +32297,56 @@ shutil.rmtree(_s226_dir, ignore_errors=True)
 
 
 # =====================================================================
+# Section 227
+# =====================================================================
+print("\n--- Section 227: File-supplied text can't render as rich text (S5) ---")
+
+# Qt guesses rich text for labels, tooltips and message boxes, so text
+# from a schema, preset or cascade could inject markup (<img>, <a>, ...).
+_s227_dir = Path(tempfile.mkdtemp(prefix="s227_"))
+_s227_schema = _s227_dir / "t227.json"
+_s227_schema.write_text(json.dumps({
+    "tool": "t227", "binary": "t227", "description": "<b>bold</b> <img src='x'>",
+    "arguments": [{"name": "V", "flag": "--v", "type": "boolean"}],
+}), encoding="utf-8")
+_s227_win = scaffold.MainWindow(tool_path=str(_s227_schema))
+app.processEvents()
+_s227_desc = [w for w in _s227_win.form.findChildren(QLabel) if "<b>bold</b>" in w.text()]
+check(len(_s227_desc) == 1 and _s227_desc[0].textFormat() == Qt.TextFormat.PlainText,
+      "227a: the schema description label is plain text")
+_s227_head = [w for w in _s227_win.form.findChildren(QLabel) if w.text() == "t227"]
+check(len(_s227_head) == 1 and _s227_head[0].textFormat() == Qt.TextFormat.PlainText,
+      "227a: the schema name header is plain text")
+check(_s227_win.cascade_dock._loaded_label.textFormat() == Qt.TextFormat.PlainText,
+      "227b: the cascade 'Loaded:' label is plain text")
+
+_s227_tip = getattr(scaffold, "_plain_tooltip", None)
+check(callable(_s227_tip), "227c: scaffold._plain_tooltip exists")
+if callable(_s227_tip):
+    _s227_t = _s227_tip("<img src='x'>\nsecond line")
+    check("<img" not in _s227_t and "&lt;img" in _s227_t and "second line" in _s227_t,
+          f"227c: tooltip text is escaped ({_s227_t!r})")
+
+# 227d: a schema whose _format value contains markup shows it inertly
+_s227_bad = _s227_dir / "bad.json"
+_s227_bad.write_text(json.dumps({"_format": "<b>x</b>"}), encoding="utf-8")
+_s227_msgs = []
+_s227_saved_crit = QMessageBox.critical
+QMessageBox.critical = staticmethod(lambda *a, **kw: _s227_msgs.append(a[2] if len(a) > 2 else ""))
+try:
+    _s227_win._load_tool_path(str(_s227_bad))
+finally:
+    QMessageBox.critical = _s227_saved_crit
+check(len(_s227_msgs) == 1 and "<b>" not in _s227_msgs[0],
+      f"227d: the wrong-format message carries no markup ({_s227_msgs!r})")
+
+_s227_win.close()
+_s227_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s227_dir, ignore_errors=True)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 shutil.rmtree(_s200_tmpdir, ignore_errors=True)
