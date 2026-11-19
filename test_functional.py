@@ -15732,17 +15732,23 @@ _s138_orig_question = QMessageBox.question
 QFileDialog.getOpenFileName = staticmethod(lambda *a, **kw: (str(_s138_src), ""))
 QMessageBox.question = staticmethod(lambda *a, **kw: QMessageBox.StandardButton.Yes)
 
-# Patch Path.write_text to simulate mid-write failure (truncate + partial write)
-_s138_orig_write_text = Path.write_text
+# Patch os.fdopen (what _atomic_write_json writes through) to simulate a
+# mid-write failure: write part of the content, then raise.
+_s138_orig_fdopen = os.fdopen
 
-def _s138_failing_write(path_self, content, *args, **kwargs):
-    """Simulate mid-write crash: open in write mode (truncating), write partial, raise."""
-    enc = kwargs.get("encoding", "utf-8")
-    with open(str(path_self), "w", encoding=enc) as f:
-        f.write(content[:10])
-    raise OSError("Simulated disk-full mid-write failure")
+class _S138FailingFile:
+    def __init__(self, f):
+        self._f = f
+    def __enter__(self):
+        return self
+    def __exit__(self, *exc):
+        self._f.close()
+        return False
+    def write(self, content):
+        self._f.write(content[:10])
+        raise OSError("Simulated disk-full mid-write failure")
 
-Path.write_text = _s138_failing_write
+os.fdopen = lambda fd, *a, **kw: _S138FailingFile(_s138_orig_fdopen(fd, *a, **kw))
 
 # Invoke the import — this should fail but dest must stay intact (atomic) or be original
 try:
@@ -15752,7 +15758,7 @@ except Exception:
     pass  # Any exception is fine; we only care about dest state
 
 # Restore patches immediately
-Path.write_text = _s138_orig_write_text
+os.fdopen = _s138_orig_fdopen
 QFileDialog.getOpenFileName = _s138_orig_getopen
 QMessageBox.question = _s138_orig_question
 
@@ -32180,6 +32186,65 @@ if sys.platform == "win32":
           f"224g: the form passes Windows paths through intact (got {_s224_form.get_extra_flags()!r})")
     _s224_form.deleteLater()
     app.processEvents()
+
+
+# =====================================================================
+# Section 225
+# =====================================================================
+print("\n--- Section 225: Recovery files are validated and privately owned (S3) ---")
+
+# Recovery files live in the temp dir, which is shared between users on
+# Linux. Their contents were applied without the preset validator, and
+# the atomic write went through a fixed, guessable <name>.tmp path.
+
+_s225_win = scaffold.MainWindow(tool_path=str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json"))
+app.processEvents()
+_s225_path = _s225_win._recovery_file_path()
+
+# 225a: a recovery file with a wrong-typed value is rejected, not applied
+_s225_path.write_text(json.dumps({
+    "_format": "scaffold_preset", "_tool": "ping", "_extra_flags": 5,
+    "_recovery_tool_path": _s225_win.tool_path, "_recovery_timestamp": time.time(),
+}), encoding="utf-8")
+_s225_saved_q = QMessageBox.question
+QMessageBox.question = staticmethod(lambda *a, **kw: QMessageBox.StandardButton.Yes)
+_s225_exc = None
+try:
+    _s225_win._check_for_recovery()
+except Exception as _e:
+    _s225_exc = _e
+finally:
+    QMessageBox.question = _s225_saved_q
+check(_s225_exc is None, f"225a: an invalid recovery file does not raise ({_s225_exc!r})")
+check(not _s225_path.exists(), "225a: the invalid recovery file is discarded")
+
+# 225b-d: ownership rule for files in a shared temp dir
+_s225_owned = getattr(scaffold, "_owned_privately", None)
+check(callable(_s225_owned), "225b: scaffold._owned_privately exists")
+if callable(_s225_owned):
+    class _S225Stat:
+        def __init__(self, uid, mode):
+            self.st_uid, self.st_mode = uid, mode
+    check(_s225_owned(_S225Stat(1000, 0o100600), 1000), "225c: own file, mode 600 is trusted")
+    check(not _s225_owned(_S225Stat(1001, 0o100600), 1000), "225d: another user's file is not trusted")
+    check(not _s225_owned(_S225Stat(1000, 0o100622), 1000), "225d: a group/world-writable file is not trusted")
+
+# 225e: the atomic write no longer goes through the fixed <name>.tmp path
+_s225_dir = Path(tempfile.mkdtemp(prefix="s225_"))
+_s225_target = _s225_dir / "out.json"
+_s225_planted = _s225_dir / "out.json.tmp"
+_s225_planted.write_text("planted", encoding="utf-8")
+scaffold._atomic_write_json(_s225_target, {"a": 1})
+check(json.loads(_s225_target.read_text(encoding="utf-8")) == {"a": 1}, "225e: atomic write still writes the file")
+check(_s225_planted.exists() and _s225_planted.read_text(encoding="utf-8") == "planted",
+      "225e: a file planted at <name>.tmp is neither used nor consumed")
+check(sorted(p.name for p in _s225_dir.iterdir()) == ["out.json", "out.json.tmp"],
+      f"225f: no temp debris left ({sorted(p.name for p in _s225_dir.iterdir())})")
+shutil.rmtree(_s225_dir, ignore_errors=True)
+
+_s225_win.close()
+_s225_win.deleteLater()
+app.processEvents()
 
 
 # =====================================================================

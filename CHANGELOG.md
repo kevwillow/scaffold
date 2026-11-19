@@ -23,6 +23,12 @@ All notable changes to Scaffold are documented here.
 - **Long runs no longer keep their whole output in memory twice.** Every run kept the full stdout and stderr in strings for cascade captures, and each append copied the whole string, so a long nmap or hashcat run grew memory and slowed down with every chunk. Captures only ever read the last 64 KB of each stream, so that is all that is kept now, in the GUI and in headless `--run-cascade`. Covered by `test_functional.py` §223.
 - **Windows paths in Additional Flags keep their backslashes.** The flags were split with POSIX shell rules, where a backslash is an escape, so `--out C:\temp\x.txt` reached the tool as `C:tempx.txt`. On Windows a backslash is now literal, while quotes still group words and are removed. Linux and macOS are unchanged. This applies to the form, its validity check and cascade substitution. Covered by `test_functional.py` §224.
 - **The ReDoS check on schema regexes catches more nested-quantifier shapes.** Validation regexes run on the GUI thread on every keystroke, and the check missed patterns like `^(\w+\s?)*$`, `((a+))+` and `(a+){2,}`. A schema with one could freeze the app: 25 typed characters took 0.67 s, doubling with each extra character. The check now flags any group that ends in a quantifier and is itself repeated open-endedly. Groups that end in a literal, like `(\w+\.)+`, are still accepted, and every bundled schema and cascade still validates. Covered by `test_security.py` §14.
+- **Crash-recovery files are hardened.** They live in the system temp folder, which is shared between users on Linux.
+  - Another user could plant one with any form values (including elevation) that Scaffold would offer to restore. Recovery now ignores a file it doesn't own or that others can write to (Linux/macOS).
+  - The contents now go through the same preset validator as preset loads. A wrong-typed value used to crash the restore.
+  - `_atomic_write_json` (used for recovery files, presets and cascades) writes through an unpredictable `mkstemp` name instead of a fixed `<name>.tmp`, so a planted file or symlink there is never written through. Files keep the permissions a plain create would give them.
+
+  Covered by `test_functional.py` §225. §138's simulated mid-write failure now injects at `os.fdopen`, which is what the atomic write uses.
 
 ## [v2.13.2] — Unreleased
 

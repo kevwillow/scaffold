@@ -365,12 +365,18 @@ def _atomic_write_json(path: Path, data: dict) -> None:
     up on failure so partial writes don't leave debris.
     """
     path = Path(path)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    # mkstemp picks an unpredictable name and creates it exclusively, so a
+    # file or symlink planted at a guessable <name>.tmp (recovery files sit
+    # in the shared temp dir on Linux) is never written through.
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    tmp = Path(tmp_name)
     try:
-        tmp.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(data, indent=2, ensure_ascii=False))
+        # mkstemp creates 0600; give the file the mode a plain create would have
+        umask = os.umask(0)
+        os.umask(umask)
+        os.chmod(tmp, 0o666 & ~umask)
         os.replace(tmp, path)
     except OSError:
         try:
@@ -378,6 +384,11 @@ def _atomic_write_json(path: Path, data: dict) -> None:
         except OSError:
             pass
         raise
+
+
+def _owned_privately(st, uid: int) -> bool:
+    """True if a file's stat shows it is owned by uid and nobody else can write it."""
+    return st.st_uid == uid and not (st.st_mode & 0o022)
 
 
 def validate_tool(data: dict) -> list[str]:
@@ -10969,6 +10980,13 @@ class MainWindow(QMainWindow):
         path = self._recovery_file_path()
         if path is None or not path.exists():
             return
+        # The temp dir is shared on Linux: ignore a file another user planted
+        if hasattr(os, "getuid"):
+            try:
+                if not _owned_privately(path.stat(), os.getuid()):
+                    return
+            except OSError:
+                return
         try:
             recovery_data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError):
@@ -11011,6 +11029,14 @@ class MainWindow(QMainWindow):
                 "Recovery file discarded \u2014 tool location has changed"
             )
             return
+        preset_part = {k: v for k, v in recovery_data.items() if not k.startswith("_recovery_")}
+        if validate_preset(preset_part, tool_data=self.data, report_unknown_keys=False):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            self._show_status("Recovery file discarded \u2014 it failed validation")
+            return
         human_time = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
         btn = QMessageBox.question(
             self, "Recover Unsaved Work",
@@ -11018,7 +11044,7 @@ class MainWindow(QMainWindow):
             "Would you like to restore it?",
         )
         if btn == QMessageBox.StandardButton.Yes:
-            had_pw = self.form.apply_values(recovery_data)
+            had_pw = self.form.apply_values(preset_part)
             self._default_form_snapshot = self.form.serialize_values()
             if had_pw:
                 self.statusBar().showMessage(
