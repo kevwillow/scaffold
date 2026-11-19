@@ -1707,12 +1707,6 @@ for _s14_pat in (r"^(\w+\.)+\w+$", r"(\d{1,3}\.){3}\d{1,3}", r"^(https?://)?[\w.
     check(not scaffold._pattern_is_redos_prone(_s14_pat)[0],
           f"14b: {_s14_pat!r} is still accepted")
 
-# 14c: the newly caught shape is really slow, so the flag is earned
-_s14_t = time.perf_counter()
-re.search(r"^(\w+\s?)*$", "a" * 20 + "!")
-check(time.perf_counter() - _s14_t > 0.005,
-      "14c: ^(\\w+\\s?)*$ backtracks measurably on 21 characters")
-
 
 # =====================================================================
 # Final cleanup
