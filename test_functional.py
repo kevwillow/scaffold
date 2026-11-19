@@ -32259,6 +32259,44 @@ app.processEvents()
 
 
 # =====================================================================
+# Section 226
+# =====================================================================
+print("\n--- Section 226: JSON files that aren't objects are rejected, not crashed on (C3) ---")
+
+# Preset, cascade and history-restore callers read a file and call .get()
+# on it; a file containing [] or "x" raised AttributeError in the slot.
+_s226_dir = Path(tempfile.mkdtemp(prefix="s226_"))
+for _s226_name, _s226_text in (("list", "[]"), ("string", '"x"'), ("number", "5")):
+    _s226_f = _s226_dir / f"{_s226_name}.json"
+    _s226_f.write_text(_s226_text, encoding="utf-8")
+    _s226_err = None
+    try:
+        scaffold._read_json_file(_s226_f)
+    except json.JSONDecodeError as _e:
+        _s226_err = _e
+    check(_s226_err is not None and "object" in str(_s226_err),
+          f"226a: a top-level {_s226_name} raises JSONDecodeError naming 'object' ({_s226_err!r})")
+
+_s226_obj = _s226_dir / "obj.json"
+_s226_obj.write_text('{"a": 1}', encoding="utf-8")
+check(scaffold._read_json_file(_s226_obj) == {"a": 1}, "226b: objects still load")
+
+# 226c: loading a [] preset into the form reports an error instead of raising
+_s226_win = scaffold.MainWindow(tool_path=str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json"))
+app.processEvents()
+_s226_exc = None
+try:
+    _s226_win._apply_preset_from_path(str(_s226_dir / "list.json"))
+except Exception as _e:
+    _s226_exc = _e
+check(_s226_exc is None, f"226c: a [] preset file does not raise ({_s226_exc!r})")
+_s226_win.close()
+_s226_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s226_dir, ignore_errors=True)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 shutil.rmtree(_s200_tmpdir, ignore_errors=True)

@@ -327,7 +327,13 @@ def _read_json_file(path) -> dict:
         raise json.JSONDecodeError(f"File is not valid UTF-8 ({e.reason})", "", e.start) from e
     if text.startswith("\ufeff"):
         text = text[1:]
-    return json.loads(text)
+    data = json.loads(text)
+    # Every caller reads a schema, preset or cascade, which are all objects;
+    # a top-level [] or "x" goes down the same path as unparseable JSON.
+    if not isinstance(data, dict):
+        raise json.JSONDecodeError(
+            f"Expected a JSON object at the top level, got {type(data).__name__}", text, 0)
+    return data
 
 
 MAX_PRESET_SIZE = 2 * 1024 * 1024  # 2 MB cap for user JSON files
