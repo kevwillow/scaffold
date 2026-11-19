@@ -32452,6 +32452,48 @@ app.processEvents()
 
 
 # =====================================================================
+# Section 231
+# =====================================================================
+print("\n--- Section 231: Output search follows new and trimmed output (C5) ---")
+
+# Matches were only computed when the search text changed, so new output
+# was never counted and trimmed lines shifted every highlight.
+_s231_win = scaffold.MainWindow(tool_path=str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json"))
+app.processEvents()
+_s231_win.output.setMaximumBlockCount(6)
+_s231_win._clear_output()
+
+
+def _s231_feed(lines):
+    for _line in lines:
+        _s231_win._append_to_buffer(_line + "\n", scaffold.OUTPUT_FG)
+    _s231_win._flush_output()
+    app.processEvents()
+
+
+_s231_feed(["ok one", "error A", "ok two"])
+_s231_win._output_search_bar.setText("error")
+app.processEvents()
+check(_s231_win._output_search_count_label.text() == "1 of 1", "231a: one match to start")
+
+# Push more lines than the block cap: the first lines are trimmed off
+_s231_feed(["error B", "ok three", "error C", "ok four"])
+_s231_sels = _s231_win.output.extraSelections()
+_s231_texts = [s.cursor.selectedText() for s in _s231_sels]
+check(_s231_texts and all(t.lower() == "error" for t in _s231_texts),
+      f"231b: every highlight still covers the word 'error' ({_s231_texts!r})")
+_s231_expected = _s231_win.output.toPlainText().lower().count("error")
+check(_s231_win._output_search_count_label.text().endswith(f"of {_s231_expected}"),
+      f"231c: the match count follows the output ({_s231_win._output_search_count_label.text()!r}, "
+      f"{_s231_expected} in the panel)")
+
+_s231_win.output.setMaximumBlockCount(scaffold.OUTPUT_MAX_BLOCKS)
+_s231_win.close()
+_s231_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 shutil.rmtree(_s200_tmpdir, ignore_errors=True)
