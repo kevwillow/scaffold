@@ -32494,6 +32494,30 @@ app.processEvents()
 
 
 # =====================================================================
+# Section 232
+# =====================================================================
+print("\n--- Section 232: Output action buttons fit their text at minimum width ---")
+
+# Their minimum width was text width + 24 px, but the stylesheet adds
+# 14 px padding per side plus borders, so a narrow window clipped
+# "Clear Output" to "Clear Outpu".
+for _s232_dark in (False, True):
+    scaffold.apply_theme(_s232_dark)
+    _s232_win = scaffold.MainWindow(tool_path=str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json"))
+    _s232_win.show()
+    app.processEvents()
+    for _s232_btn in (_s232_win.clear_btn, _s232_win.copy_output_btn, _s232_win.save_output_btn):
+        _s232_btn.ensurePolished()
+        check(_s232_btn.minimumWidth() >= _s232_btn.sizeHint().width(),
+              f"232a: {_s232_btn.text()!r} minimum width {_s232_btn.minimumWidth()} fits its text "
+              f"({_s232_btn.sizeHint().width()}) in {'dark' if _s232_dark else 'light'} mode")
+    _s232_win.close()
+    _s232_win.deleteLater()
+    app.processEvents()
+scaffold.apply_theme(False)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 shutil.rmtree(_s200_tmpdir, ignore_errors=True)

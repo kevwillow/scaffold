@@ -11514,8 +11514,10 @@ class MainWindow(QMainWindow):
         self.copy_output_btn.setFont(_small_font)
         self.save_output_btn.setFont(_small_font)
         for btn in (self.clear_btn, self.copy_output_btn, self.save_output_btn):
-            fm = btn.fontMetrics()
-            btn.setMinimumWidth(fm.horizontalAdvance(btn.text()) + 24)
+            # The polished size hint includes the stylesheet's padding and
+            # borders, so the text fits however the theme pads buttons
+            btn.ensurePolished()
+            btn.setMinimumWidth(btn.sizeHint().width())
 
         action_bar.addSpacerItem(QSpacerItem(16, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
 
