@@ -65,6 +65,22 @@ CAPTURE_RESERVED_NAMES = frozenset({"exit_code", "stdout", "stderr", "stdout_tai
 CAPTURE_STREAM_TAIL_BYTES = 64 * 1024  # 64KB slice for regex + full-stream captures
 
 
+def _split_extra_flags(text: str, windows: bool = sys.platform == "win32") -> list[str]:
+    """Split Additional Flags text into arguments, like shlex.split.
+
+    On Windows a backslash is a path separator (C:\\temp\\x.txt), not an
+    escape, so it is kept literally; quotes still group and are removed.
+    Raises ValueError on unmatched quotes, as shlex.split does.
+    """
+    if not windows:
+        return shlex.split(text)
+    lex = shlex.shlex(text, posix=True)
+    lex.whitespace_split = True
+    lex.commenters = ""
+    lex.escape = ""
+    return list(lex)
+
+
 def _capture_tail(kept: str, text: str) -> str:
     """Append text to a per-run stream, keeping only what captures read.
 
@@ -1751,7 +1767,7 @@ class ToolForm(QWidget):
             self.extra_flags_edit.setStyleSheet("")
             return
         try:
-            shlex.split(text)
+            _split_extra_flags(text)
             self.extra_flags_edit.setStyleSheet("")
         except ValueError:
             self.extra_flags_edit.setStyleSheet(_invalid_style())
@@ -2349,7 +2365,7 @@ class ToolForm(QWidget):
         if not text:
             return True
         try:
-            shlex.split(text)
+            _split_extra_flags(text)
             return True
         except ValueError:
             return False
@@ -2362,7 +2378,7 @@ class ToolForm(QWidget):
         if not text:
             return []
         try:
-            return shlex.split(text)
+            return _split_extra_flags(text)
         except ValueError:
             return []
 
@@ -9201,7 +9217,6 @@ class CascadeSidebar(QDockWidget):
         # resolves to a multi-token value must halt. We do this
         # BEFORE calling _substitute_captures so the halt message
         # can name the specific capture and its resolved value.
-        import shlex as _shlex
         pattern = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
         for m in pattern.finditer(original):
             name = m.group(1)
@@ -9209,7 +9224,7 @@ class CascadeSidebar(QDockWidget):
                 continue  # unset — let _substitute_captures handle (becomes empty)
             value = str(self._chain_variable_values[name])
             try:
-                tokens = _shlex.split(value)
+                tokens = _split_extra_flags(value)
             except ValueError as exc:
                 self._cascade_finish_status = "error_halted"
                 self._chain_cleanup(
@@ -9245,12 +9260,12 @@ class CascadeSidebar(QDockWidget):
             original, {name: "x" for name in self._chain_variable_values}
         )
         try:
-            expected = len(_shlex.split(placeholder_text))
+            expected = len(_split_extra_flags(placeholder_text))
         except ValueError:
             expected = None  # the user's own text doesn't parse; get_extra_flags ignores it
         if expected is not None:
             try:
-                actual = len(_shlex.split(new_text))
+                actual = len(_split_extra_flags(new_text))
             except ValueError:
                 actual = None
             if actual != expected:

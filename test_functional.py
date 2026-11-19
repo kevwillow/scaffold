@@ -32145,6 +32145,44 @@ app.processEvents()
 
 
 # =====================================================================
+# Section 224
+# =====================================================================
+print("\n--- Section 224: Additional Flags keep Windows backslashes (C1) ---")
+
+# POSIX shlex treats a backslash as an escape, so on Windows
+# "--out C:\\temp\\x.txt" became ["--out", "C:tempx.txt"].
+_s224_split = getattr(scaffold, "_split_extra_flags", None)
+check(callable(_s224_split), "224a: scaffold._split_extra_flags exists")
+if callable(_s224_split):
+    check(_s224_split(r"--out C:\temp\x.txt", windows=True) == ["--out", r"C:\temp\x.txt"],
+          "224b: Windows keeps backslashes in paths")
+    check(_s224_split(r'--name "C:\Program Files\x" -v', windows=True) == ["--name", r"C:\Program Files\x", "-v"],
+          "224c: Windows still groups quoted text and drops the quotes")
+    check(_s224_split("--k='a b'", windows=True) == ["--k=a b"],
+          "224d: Windows handles quotes inside a token")
+    check(_s224_split(r"a\ b", windows=False) == ["a b"],
+          "224e: POSIX keeps backslash-escape behavior")
+    _s224_raised = False
+    try:
+        _s224_split('--x "open', windows=True)
+    except ValueError:
+        _s224_raised = True
+    check(_s224_raised, "224f: unmatched quotes still raise ValueError on Windows")
+
+if sys.platform == "win32":
+    _s224_form = scaffold.ToolForm(scaffold.normalize_tool({
+        "tool": "t224", "binary": "t224", "description": "",
+        "arguments": [{"name": "V", "flag": "--v", "type": "boolean"}],
+    }))
+    _s224_form.extra_flags_group.setChecked(True)
+    _s224_form.extra_flags_edit.setPlainText(r"--out C:\temp\x.txt")
+    check(_s224_form.get_extra_flags() == ["--out", r"C:\temp\x.txt"],
+          f"224g: the form passes Windows paths through intact (got {_s224_form.get_extra_flags()!r})")
+    _s224_form.deleteLater()
+    app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 shutil.rmtree(_s200_tmpdir, ignore_errors=True)
