@@ -7092,9 +7092,6 @@ class CustomPathDialog(QDialog):
         _set_custom_paths(self._paths)
         self.accept()
 
-    def get_paths(self) -> list[str]:
-        return list(self._paths)
-
 
 class CascadeVariableDefinitionDialog(QDialog):
     """Modal dialog for defining cascade variables (name, flag, type, apply-to)."""
