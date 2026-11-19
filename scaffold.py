@@ -89,8 +89,13 @@ def _capture_tail(kept: str, text: str) -> str:
     """
     kept += text
     return kept[-CAPTURE_STREAM_TAIL_BYTES:] if len(kept) > CAPTURE_STREAM_TAIL_BYTES else kept
+
+
 MAX_REGEX_SECONDS = 2.0  # per-regex wall-clock budget
-_REDOS_NESTED_QUANT_RE = re.compile(r"\([^)]*[+*]\)[+*]")
+# A group that ends in a quantifier (+ * ? or {..}) and is itself repeated
+# open-endedly (+ * or {n,}), e.g. (a+)+, (\w+\s?)*, ((a+))+, (a+){2,}.
+# A group ending in a literal, like (\w+\.)+, can't overlap and is allowed.
+_REDOS_NESTED_QUANT_RE = re.compile(r"\([^)]*[+*?}]\)+(?:[+*]|\{\d*,)")
 _REDOS_ALT_QUANT_RE = re.compile(r"\([^|)]+\|[^)]+\)[+*]")
 _SHELL_METACHAR = frozenset("|;&$`(){}<>!~\x00#\\'\"")
 

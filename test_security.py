@@ -1690,6 +1690,29 @@ if sys.platform == "win32":
 
 
 # =====================================================================
+print("\n=== SECTION 14: ReDoS detector covers more nested-quantifier shapes (S4) ===")
+# =====================================================================
+# Validation regexes run on the GUI thread on every keystroke, so a
+# pattern the detector misses can freeze the app. ^(\w+\s?)*$ took
+# 0.67 s at 25 characters and doubles with each extra one.
+
+for _s14_pat in (r"^(\w+\s?)*$", r"((a+))+", r"(a+){2,}", r"([a-z]{1,3})+$", r"(?:\d+\s?)*x"):
+    check(scaffold._pattern_is_redos_prone(_s14_pat)[0],
+          f"14a: {_s14_pat!r} is flagged as ReDoS-prone")
+
+for _s14_pat in (r"^(\w+\.)+\w+$", r"(\d{1,3}\.){3}\d{1,3}", r"^(https?://)?[\w.-]+$",
+                 r"(\d{1,3}(?:\.\d{1,3}){3})", r"^[a-zA-Z0-9_-]+$"):
+    check(not scaffold._pattern_is_redos_prone(_s14_pat)[0],
+          f"14b: {_s14_pat!r} is still accepted")
+
+# 14c: the newly caught shape is really slow, so the flag is earned
+_s14_t = time.perf_counter()
+re.search(r"^(\w+\s?)*$", "a" * 20 + "!")
+check(time.perf_counter() - _s14_t > 0.005,
+      "14c: ^(\\w+\\s?)*$ backtracks measurably on 21 characters")
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 _cleanup_recovery_files()
