@@ -1129,6 +1129,7 @@ LIGHT_COLORS = {
     "success": "#1a7f37",
     "success_bg": "#1f883d",      # Run button (solid)
     "success_bg_hover": "#1a7f37",
+    "success_tint": "#dcf2e3",    # exit-0 pill in the output header
     "error": "#cf222e",
     "error_bg": "#ffe1e1",        # Stop button, invalid table cells
     "error_bg_hover": "#ffcfcf",
@@ -1161,6 +1162,7 @@ DARK_COLORS = {
     "success": "#56c271",
     "success_bg": "#238636",
     "success_bg_hover": "#2ea043",
+    "success_tint": "#1c2e22",
     "error": "#f2777a",
     "error_bg": "#3d2326",
     "error_bg_hover": "#4b2a2e",
@@ -1396,6 +1398,29 @@ def _invalid_style() -> str:
 
 def _required_color() -> str:
     return _c("required")
+
+
+def _field_label_html(arg: dict) -> str:
+    """Return the rich-text form label for an arg: its name with required,
+    dangerous and deprecated markers, and the real CLI flag on a second line.
+
+    Every schema string is escaped, because the label renders as rich text.
+    """
+    text = html.escape(arg["name"])
+    if arg["required"]:
+        text = f"<b>{text} <span style='color:{_required_color()};'>*</span></b>"
+    if arg.get("dangerous"):
+        text = f"<span style='color:{_c('required')};'>\u26a0</span> {text}"
+    if arg.get("deprecated"):
+        text = f"<s>{text}</s> <span style='color:{_c('warning_text')};'>(deprecated)</span>"
+    # A positional's "flag" is a placeholder the user never types
+    if not arg.get("positional"):
+        flags = arg["flag"]
+        if arg.get("short_flag"):
+            flags = f"{arg['short_flag']}, {flags}"
+        text += (f"<br><span style='font-family: Consolas, Menlo, monospace; font-size: 10px;"
+                 f" color:{_c('text_dim')};'>{html.escape(flags)}</span>")
+    return text
 
 
 class DragHandle(QWidget):
@@ -1883,18 +1908,7 @@ class ToolForm(QWidget):
         flag = arg["flag"]
         key = self._field_key(scope, flag)
         widget = self._build_widget(arg, key)
-        label_text = html.escape(arg["name"])
-        if arg["required"]:
-            label_text = f"<b>{label_text} <span style='color:{_required_color()};'>*</span></b>"
-        # Dangerous: prepend red warning symbol
-        if arg.get("dangerous"):
-            warn_color = _c("required")
-            label_text = f"<span style='color:{warn_color};'>\u26a0</span> {label_text}"
-        # Deprecated: strikethrough + colored suffix
-        if arg.get("deprecated"):
-            dep_color = _c("warning_text")
-            label_text = f"<s>{label_text}</s> <span style='color:{dep_color};'>(deprecated)</span>"
-        label = QLabel(label_text)
+        label = QLabel(_field_label_html(arg))
         label.setTextFormat(Qt.TextFormat.RichText)
         label.setToolTip(self._build_tooltip(arg))
 
@@ -2802,24 +2816,8 @@ class ToolForm(QWidget):
 
     def update_theme(self) -> None:
         """Update theme-sensitive widget styles (required labels, validation borders)."""
-        req_color = _required_color()
-        warn_color = _c("required")
-        dep_color = _c("warning_text")
-
         for key, field in self.fields.items():
-            arg = field["arg"]
-            label = field["label"]
-
-            # Rebuild label text only if it has any theme-sensitive decoration
-            if arg["required"] or arg.get("dangerous") or arg.get("deprecated"):
-                label_text = html.escape(arg["name"])
-                if arg["required"]:
-                    label_text = f"<b>{label_text} <span style='color:{req_color};'>*</span></b>"
-                if arg.get("dangerous"):
-                    label_text = f"<span style='color:{warn_color};'>⚠</span> {label_text}"
-                if arg.get("deprecated"):
-                    label_text = f"<s>{label_text}</s> <span style='color:{dep_color};'>(deprecated)</span>"
-                label.setText(label_text)
+            field["label"].setText(_field_label_html(field["arg"]))
 
             w = field["widget"]
             if w.styleSheet() and "border" in w.styleSheet():
@@ -9906,6 +9904,7 @@ class MainWindow(QMainWindow):
         self._killed = False
         self._error_reported = False
         self._timed_out = False
+        self._run_line_count = 0
         self._elevated_run = False
         self._run_start_time: float | None = None
         self._force_kill_timer = QTimer(self)
@@ -10411,6 +10410,8 @@ class MainWindow(QMainWindow):
             # Re-color preview with new theme colors
             if hasattr(self, "form") and self.form:
                 self._update_preview()
+        if hasattr(self, "output_summary"):
+            self._render_output_summary()
         # Section labels and separators
         for attr in ("preview_label", "output_label"):
             if hasattr(self, attr):
@@ -10441,6 +10442,32 @@ class MainWindow(QMainWindow):
         # Cascade sidebar
         if hasattr(self, "cascade_dock"):
             self.cascade_dock.update_theme()
+
+    def _set_output_summary(self, state: tuple | None) -> None:
+        """Show (status, kind, elapsed_s, lines) beside the Output header, or hide it."""
+        self._output_summary_state = state
+        self._render_output_summary()
+
+    def _render_output_summary(self) -> None:
+        """Draw the run summary pill in the current theme's colors."""
+        state = self._output_summary_state
+        self.output_summary.setVisible(state is not None)
+        if state is None:
+            return
+        status, kind, elapsed, lines = state
+        bg = {"success": "success_tint", "error": "error_bg", "warning": "warning_bg"}[kind]
+        fg = {"success": "success", "error": "error", "warning": "warning_text"}[kind]
+        details = []
+        if elapsed is not None:
+            details.append(f"{elapsed:.1f}s")
+        if lines is not None:
+            details.append(f"{lines} line" + ("" if lines == 1 else "s"))
+        detail_html = (f" <span style='color:{_c('text_dim')};'>{html.escape(' · '.join(details))}</span>"
+                       if details else "")
+        self.output_summary.setText(
+            f"<span style='background-color:{_c(bg)}; color:{_c(fg)}; font-weight:600;'>"
+            f"&nbsp;{html.escape(status)}&nbsp;</span>{detail_html}"
+        )
 
     @staticmethod
     def _style_section_label(label: QLabel) -> None:
@@ -11338,7 +11365,17 @@ class MainWindow(QMainWindow):
         self.output_label = QLabel("Output")
         self.output_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._style_section_label(self.output_label)
-        layout.addWidget(self.output_label)
+        # Last run's result, e.g. "exit 0 · 1.2s · 40 lines"; hidden until a run ends
+        self.output_summary = QLabel()
+        self.output_summary.setTextFormat(Qt.TextFormat.RichText)
+        self.output_summary.setVisible(False)
+        self._output_summary_state = None
+        output_header = QHBoxLayout()
+        output_header.addStretch()
+        output_header.addWidget(self.output_label)
+        output_header.addWidget(self.output_summary)
+        output_header.addStretch()
+        layout.addLayout(output_header)
 
         # Output search bar (Ctrl+Shift+F) — initially hidden
         self._output_search_bar = QLineEdit()
@@ -12106,6 +12143,8 @@ class MainWindow(QMainWindow):
         self._timed_out = False
         self._last_run_stdout = ""
         self._last_run_stderr = ""
+        self._run_line_count = 0
+        self._set_output_summary(None)
         self._run_start_time = time.monotonic()
         self.run_btn.setText("Stop")
         self._style_run_btn()
@@ -12139,6 +12178,7 @@ class MainWindow(QMainWindow):
         data = self.process.readAllStandardOutput()
         text = bytes(data).decode("utf-8", errors="replace")
         self._last_run_stdout += text
+        self._run_line_count += text.count("\n")
         self._append_to_buffer(text, OUTPUT_FG)
         if not self._flush_timer.isActive():
             self._flush_timer.start()
@@ -12150,6 +12190,7 @@ class MainWindow(QMainWindow):
         data = self.process.readAllStandardError()
         text = bytes(data).decode("utf-8", errors="replace")
         self._last_run_stderr += text
+        self._run_line_count += text.count("\n")
         self._append_to_buffer(text, COLOR_WARN)
         if not self._flush_timer.isActive():
             self._flush_timer.start()
@@ -12190,6 +12231,7 @@ class MainWindow(QMainWindow):
             self._release_process()
             return
         elapsed_str = ""
+        elapsed = None
         if self._run_start_time is not None:
             elapsed = time.monotonic() - self._run_start_time
             elapsed_str = f" ({elapsed:.1f}s)"
@@ -12197,28 +12239,36 @@ class MainWindow(QMainWindow):
         crashed = exit_status == QProcess.ExitStatus.CrashExit
         if self._timed_out:
             self.statusBar().showMessage(f"Timed out{elapsed_str}")
+            summary = ("timed out", "warning")
         elif self._killed:
             self._append_output("\n--- Process stopped ---\n", COLOR_WARN)
             self.statusBar().showMessage(f"Process stopped{elapsed_str}")
+            summary = ("stopped", "warning")
         elif crashed and not self._killed and not self._timed_out:
             self._append_output("\n--- Process crashed ---\n", COLOR_ERR)
             self.statusBar().showMessage(f"Crashed{elapsed_str}")
+            summary = ("crashed", "error")
         elif self._elevated_run and exit_code == 126:
             self._append_output(
                 "\n--- Elevation failed: helper could not execute. ---\n", COLOR_ERR
             )
             self.statusBar().showMessage("Elevation failed")
+            summary = ("elevation failed", "error")
         elif self._elevated_run and exit_code == 127:
             self._append_output(
                 "\n--- Elevation cancelled or unavailable ---\n", COLOR_WARN
             )
             self.statusBar().showMessage("Elevation cancelled or unavailable")
+            summary = ("elevation cancelled", "warning")
         elif exit_code == 0:
             self._append_output(f"\n--- Process exited with code {exit_code} ---\n", COLOR_OK)
             self.statusBar().showMessage(f"Exit 0{elapsed_str}")
+            summary = ("exit 0", "success")
         else:
             self._append_output(f"\n--- Process exited with code {exit_code} ---\n", COLOR_ERR)
             self.statusBar().showMessage(f"Exit {exit_code}{elapsed_str}")
+            summary = (f"exit {exit_code}", "error")
+        self._set_output_summary((*summary, elapsed, self._run_line_count))
         self._record_history_entry(exit_code, crashed=crashed)
         self.run_btn.setEnabled(True)
         self.run_btn.setText("Run")
@@ -12271,6 +12321,8 @@ class MainWindow(QMainWindow):
             QProcess.ProcessError.ReadError: "read_error",
         }
         self._record_history_entry(-1, error=_error_tokens.get(error, "unknown"))
+        self._set_output_summary(
+            (_error_tokens.get(error, "error").replace("_", " "), "error", None, None))
         self.run_btn.setEnabled(True)
         self.run_btn.setText("Run")
         self._style_run_btn()
@@ -12498,6 +12550,7 @@ class MainWindow(QMainWindow):
         self.output.clear()
         self._output_buffer.clear()
         self._output_truncated = False
+        self._set_output_summary(None)
         self._update_output_search_visibility()
 
     def _save_output(self, path: str | None = None) -> None:

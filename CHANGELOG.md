@@ -5,6 +5,11 @@ All notable changes to Scaffold are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Form labels show the real CLI flag** under each field name (e.g. `-sL`, or `-p, --ports` when there is a short flag), in small monospace. Positional arguments are left out, since their `flag` is only a placeholder. The flag and name are HTML-escaped. Covered by `test_functional.py` §221.
+- **The Output header shows the last run's result**: a colored pill (`exit 0`, `exit 2`, `stopped`, `timed out`, `crashed`, `failed to start`, ...) plus run time and the number of output lines. Clear Output hides it. Covered by §222.
+
 ### Changed
 
 - **New light and dark themes.** Both themes now come from one set of color tokens (`LIGHT_COLORS` / `DARK_COLORS`, read with `_c()`) and one shared stylesheet, replacing about 60 scattered light/dark branches. Light mode is a full theme instead of stock OS controls; dark mode moves from Catppuccin to a neutral graphite with a blue accent. Both get 6-8px rounded corners, an accent focus border, hover states, drawn checkmarks, softer table grids, and a solid green Run button. The output panel stays dark in both.

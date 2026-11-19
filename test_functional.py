@@ -31971,6 +31971,103 @@ check(_s220_order[:2] == ["data root", "snapshot"],
       f"220s: headless run resolves the data folder before its settings snapshot (got {_s220_order})")
 
 # =====================================================================
+# Section 221
+# =====================================================================
+print("\n--- Section 221: Form labels show the real CLI flag ---")
+
+_s221_tool = scaffold.normalize_tool({
+    "tool": "t221", "binary": "t221", "description": "",
+    "arguments": [
+        {"name": "Ports", "flag": "--ports", "short_flag": "-p", "type": "string"},
+        {"name": "Odd <b>name</b>", "flag": "--x<y>", "type": "boolean"},
+        {"name": "Target", "flag": "TARGET", "type": "string", "positional": True, "required": True},
+    ],
+})
+_s221_saved_dark = scaffold._dark_mode
+scaffold.apply_theme(False)
+_s221_form = scaffold.ToolForm(_s221_tool)
+_s221_G = _s221_form.GLOBAL
+_s221_ports = _s221_form.fields[(_s221_G, "--ports")]["label"].text()
+_s221_odd = _s221_form.fields[(_s221_G, "--x<y>")]["label"].text()
+_s221_target = _s221_form.fields[(_s221_G, "TARGET")]["label"].text()
+
+check("-p, --ports" in _s221_ports, f"221a: label shows short and long flag ({_s221_ports!r})")
+check("--x&lt;y&gt;" in _s221_odd and "<b>name</b>" not in _s221_odd,
+      f"221b: flag and name are HTML-escaped ({_s221_odd!r})")
+check("TARGET" not in _s221_target and "<br>" not in _s221_target,
+      f"221c: positional placeholder is not shown as a flag ({_s221_target!r})")
+check(scaffold.LIGHT_COLORS["text_dim"] in _s221_ports,
+      "221d: flag line uses the light dim color in light mode")
+
+scaffold.apply_theme(True)
+_s221_form.update_theme()
+_s221_ports_dark = _s221_form.fields[(_s221_G, "--ports")]["label"].text()
+check(scaffold.DARK_COLORS["text_dim"] in _s221_ports_dark
+      and scaffold.LIGHT_COLORS["text_dim"] not in _s221_ports_dark,
+      "221e: flag line follows a theme toggle")
+
+scaffold.apply_theme(_s221_saved_dark)
+_s221_form.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 222
+# =====================================================================
+print("\n--- Section 222: Output header shows the last run's result ---")
+
+_s222_saved_dark = scaffold._dark_mode
+scaffold.apply_theme(False)
+_s222_win = scaffold.MainWindow(tool_path=str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json"))
+app.processEvents()
+check(not _s222_win.output_summary.isVisibleTo(_s222_win), "222a: summary hidden before any run")
+
+
+class _S222FakeProc:
+    def readAllStandardOutput(self):
+        return b"one\ntwo\n"
+
+    def readAllStandardError(self):
+        return b"warn\n"
+
+
+_s222_win._run_line_count = 0
+_s222_win.process = _S222FakeProc()
+_s222_win._on_stdout_ready()
+_s222_win._on_stderr_ready()
+_s222_win.process = None
+check(_s222_win._run_line_count == 3, f"222b: stdout and stderr lines are counted (got {_s222_win._run_line_count})")
+
+_s222_win._run_start_time = time.monotonic() - 1.5
+_s222_win._on_finished(0, QProcess.ExitStatus.NormalExit)
+_s222_text = _s222_win.output_summary.text()
+check(_s222_win.output_summary.isVisibleTo(_s222_win), "222c: summary shown after a run")
+check("exit 0" in _s222_text and "3 lines" in _s222_text and "1.5s" in _s222_text,
+      f"222d: summary has exit code, run time and line count ({_s222_text!r})")
+check(scaffold.LIGHT_COLORS["success_tint"] in _s222_text, "222e: exit 0 uses the success pill")
+
+_s222_win._run_line_count = 1
+_s222_win._on_finished(2, QProcess.ExitStatus.NormalExit)
+_s222_text = _s222_win.output_summary.text()
+check("exit 2" in _s222_text and "1 line<" in _s222_text and scaffold.LIGHT_COLORS["error_bg"] in _s222_text,
+      f"222f: non-zero exit uses the error pill and singular 'line' ({_s222_text!r})")
+
+scaffold.apply_theme(True)
+_s222_win._apply_widget_theme()
+_s222_text = _s222_win.output_summary.text()
+check(scaffold.DARK_COLORS["error_bg"] in _s222_text and scaffold.LIGHT_COLORS["error_bg"] not in _s222_text,
+      "222g: summary follows a theme toggle")
+
+_s222_win._clear_output()
+check(not _s222_win.output_summary.isVisibleTo(_s222_win), "222h: Clear Output hides the summary")
+
+scaffold.apply_theme(_s222_saved_dark)
+_s222_win.close()
+_s222_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 shutil.rmtree(_s200_tmpdir, ignore_errors=True)
