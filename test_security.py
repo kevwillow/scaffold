@@ -1638,7 +1638,9 @@ print("\n=== SECTION 13: Batch-file targets refuse cmd.exe metacharacters (S2) =
 # arguments; QProcess does not escape for it, so "x & calc" in a field
 # value would run calc. Scaffold refuses such arguments for batch targets.
 
-_s13_dir = Path(_shared_tmp) / "s13"
+# resolve(): CI's temp dir is an 8.3 short path (RUNNER~1), and "~" is not
+# allowed in a schema binary path
+_s13_dir = Path(_shared_tmp).resolve() / "s13"
 _s13_dir.mkdir(exist_ok=True)
 _s13_bat = _s13_dir / "tool.bat"
 _s13_bat.write_text("@exit /b 0\r\n")

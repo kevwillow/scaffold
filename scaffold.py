@@ -11475,12 +11475,16 @@ class MainWindow(QMainWindow):
         self.output_summary.setTextFormat(Qt.TextFormat.RichText)
         self.output_summary.setVisible(False)
         self._output_summary_state = None
-        output_header = QHBoxLayout()
-        output_header.addStretch()
-        output_header.addWidget(self.output_label)
-        output_header.addWidget(self.output_summary)
-        output_header.addStretch()
-        layout.addLayout(output_header)
+        # A widget, not a nested layout: _build_form_view's teardown only
+        # removes widget items from this container.
+        output_header = QWidget()
+        output_header_layout = QHBoxLayout(output_header)
+        output_header_layout.setContentsMargins(0, 0, 0, 0)
+        output_header_layout.addStretch()
+        output_header_layout.addWidget(self.output_label)
+        output_header_layout.addWidget(self.output_summary)
+        output_header_layout.addStretch()
+        layout.addWidget(output_header)
 
         # Output search bar (Ctrl+Shift+F) — initially hidden
         self._output_search_bar = QLineEdit()

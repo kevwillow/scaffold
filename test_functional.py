@@ -32099,6 +32099,17 @@ check(scaffold.DARK_COLORS["error_bg"] in _s222_text and scaffold.LIGHT_COLORS["
 _s222_win._clear_output()
 check(not _s222_win.output_summary.isVisibleTo(_s222_win), "222h: Clear Output hides the summary")
 
+# 222i: rebuilding the form view must not leave the old Output header behind
+# (a nested layout in the form container was dropped without its widgets)
+from PySide6.QtCore import QEvent as _S222QEvent
+_s222_win._load_tool_path(_s222_win.tool_path)
+app.processEvents()
+QApplication.sendPostedEvents(None, _S222QEvent.Type.DeferredDelete)
+app.processEvents()
+_s222_headers = [w for w in _s222_win.findChildren(QLabel) if w.text() == "Output"]
+check(len(_s222_headers) == 1,
+      f"222i: exactly one Output header after a rebuild (got {len(_s222_headers)})")
+
 scaffold.apply_theme(_s222_saved_dark)
 _s222_win.close()
 _s222_win.deleteLater()
