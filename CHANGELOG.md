@@ -29,6 +29,7 @@ All notable changes to Scaffold are documented here.
   - `_atomic_write_json` (used for recovery files, presets and cascades) writes through an unpredictable `mkstemp` name instead of a fixed `<name>.tmp`, so a planted file or symlink there is never written through. Files keep the permissions a plain create would give them.
 
   Covered by `test_functional.py` §225. §138's simulated mid-write failure now injects at `os.fdopen`, which is what the atomic write uses.
+- **A preset or cascade file whose JSON isn't an object no longer crashes Scaffold.** Loading, overwriting or restoring from history a file containing `[]`, `"x"` or a number raised an uncaught `AttributeError`. `_read_json_file` now rejects a non-object top level with the same error as unparseable JSON, which every caller already handles. Covered by `test_functional.py` §226.
 
 ## [v2.13.2] — Unreleased
 
