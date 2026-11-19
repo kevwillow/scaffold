@@ -63,6 +63,16 @@ VALID_SEPARATORS = {"space", "equals", "none"}
 VALID_ELEVATED = {"never", "optional", "always"}
 CAPTURE_RESERVED_NAMES = frozenset({"exit_code", "stdout", "stderr", "stdout_tail", "stderr_tail", "file"})
 CAPTURE_STREAM_TAIL_BYTES = 64 * 1024  # 64KB slice for regex + full-stream captures
+
+
+def _capture_tail(kept: str, text: str) -> str:
+    """Append text to a per-run stream, keeping only what captures read.
+
+    extract_captures looks at the last CAPTURE_STREAM_TAIL_BYTES characters
+    of each stream, so anything older is dead weight on long runs.
+    """
+    kept += text
+    return kept[-CAPTURE_STREAM_TAIL_BYTES:] if len(kept) > CAPTURE_STREAM_TAIL_BYTES else kept
 MAX_REGEX_SECONDS = 2.0  # per-regex wall-clock budget
 _REDOS_NESTED_QUANT_RE = re.compile(r"\([^)]*[+*]\)[+*]")
 _REDOS_ALT_QUANT_RE = re.compile(r"\([^|)]+\|[^)]+\)[+*]")
@@ -5959,7 +5969,7 @@ class CascadeHeadlessRunner:
             if proc is None:
                 return
             text = bytes(proc.readAllStandardOutput()).decode("utf-8", errors="replace")
-            mw._last_run_stdout += text
+            mw._last_run_stdout = _capture_tail(mw._last_run_stdout, text)
             runner._stream("stdout", text)
 
         def patched_stderr_ready():
@@ -5967,7 +5977,7 @@ class CascadeHeadlessRunner:
             if proc is None:
                 return
             text = bytes(proc.readAllStandardError()).decode("utf-8", errors="replace")
-            mw._last_run_stderr += text
+            mw._last_run_stderr = _capture_tail(mw._last_run_stderr, text)
             runner._stream("stderr", text)
 
         mw._on_stdout_ready = patched_stdout_ready
@@ -12232,7 +12242,7 @@ class MainWindow(QMainWindow):
             return
         data = self.process.readAllStandardOutput()
         text = bytes(data).decode("utf-8", errors="replace")
-        self._last_run_stdout += text
+        self._last_run_stdout = _capture_tail(self._last_run_stdout, text)
         self._run_line_count += text.count("\n")
         self._append_to_buffer(text, OUTPUT_FG)
         if not self._flush_timer.isActive():
@@ -12244,7 +12254,7 @@ class MainWindow(QMainWindow):
             return
         data = self.process.readAllStandardError()
         text = bytes(data).decode("utf-8", errors="replace")
-        self._last_run_stderr += text
+        self._last_run_stderr = _capture_tail(self._last_run_stderr, text)
         self._run_line_count += text.count("\n")
         self._append_to_buffer(text, COLOR_WARN)
         if not self._flush_timer.isActive():

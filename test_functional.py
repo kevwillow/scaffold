@@ -32100,6 +32100,51 @@ app.processEvents()
 
 
 # =====================================================================
+# Section 223
+# =====================================================================
+print("\n--- Section 223: Per-run capture streams keep only the tail (L1) ---")
+
+# extract_captures reads only the last CAPTURE_STREAM_TAIL_BYTES of each
+# stream, but the whole stream used to be kept for every run.
+_s223_win = scaffold.MainWindow(tool_path=str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json"))
+_s223_chunk = "x" * 8191 + "\n"
+
+
+class _S223FakeProc:
+    def __init__(self):
+        self.n = 0
+
+    def readAllStandardOutput(self):
+        self.n += 1
+        return (_s223_chunk[:-1] + str(self.n % 10) + "\n").encode()
+
+    def readAllStandardError(self):
+        return b"e" * 8192
+
+
+_s223_win._last_run_stdout = ""
+_s223_win._last_run_stderr = ""
+_s223_win.process = _S223FakeProc()
+for _ in range(40):  # 320 KB per stream
+    _s223_win._on_stdout_ready()
+    _s223_win._on_stderr_ready()
+_s223_last = _s223_win.process.n
+_s223_win.process = None
+_s223_limit = scaffold.CAPTURE_STREAM_TAIL_BYTES
+check(len(_s223_win._last_run_stdout) <= _s223_limit,
+      f"223a: stdout kept to the capture tail ({len(_s223_win._last_run_stdout)} <= {_s223_limit})")
+check(len(_s223_win._last_run_stderr) <= _s223_limit,
+      f"223b: stderr kept to the capture tail ({len(_s223_win._last_run_stderr)} <= {_s223_limit})")
+check(_s223_win._last_run_stdout.endswith(str(_s223_last % 10) + "\n")
+      and len(_s223_win._last_run_stdout) == _s223_limit,
+      "223c: the newest output is kept, filling the whole tail")
+_s223_win._output_buffer.clear()
+_s223_win.close()
+_s223_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 shutil.rmtree(_s200_tmpdir, ignore_errors=True)
