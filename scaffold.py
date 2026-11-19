@@ -12346,10 +12346,11 @@ class MainWindow(QMainWindow):
                     ("[output truncated — buffer cap reached]\n", COLOR_WARN),
                 )
                 self._output_truncated = True
-            # Drop oldest entries (after the sentinel) until under cap
-            while (sum(len(t) for t, _ in self._output_buffer) > OUTPUT_BUFFER_MAX_BYTES
-                   and len(self._output_buffer) > 1):
-                self._output_buffer.pop(1)
+                total += len(self._output_buffer[0][0])
+            # Drop oldest entries (after the sentinel) until under cap, keeping
+            # a running total rather than re-summing the list per drop
+            while total > OUTPUT_BUFFER_MAX_BYTES and len(self._output_buffer) > 1:
+                total -= len(self._output_buffer.pop(1)[0])
 
     def _on_stdout_ready(self) -> None:
         """Buffer available stdout data for the next flush cycle."""
