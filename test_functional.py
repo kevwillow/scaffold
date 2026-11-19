@@ -4652,7 +4652,7 @@ check(_s39_w.run_btn.text() == "Stopping...", "39d: button shows Stopping...")
 check(not _s39_w.run_btn.isEnabled(), "39d: button disabled while stopping")
 _s39_style = _s39_w.run_btn.styleSheet()
 check("italic" in _s39_style, "39d: Stopping... button has italic style")
-check("#e8a838" in _s39_style or "#b8860b" in _s39_style, "39d: Stopping... button uses warning color")
+check(scaffold._c("warning_text") in _s39_style, "39d: Stopping... button uses warning color")
 
 if _s39_proc is not None:
     _s39_proc.waitForFinished(10000)
@@ -8331,16 +8331,16 @@ _s69_f1 = _s69_w1.form
 _s69_k1 = (_s69_f1.GLOBAL, "--force")
 _s69_lbl1 = _s69_f1.fields[_s69_k1]["label"]
 
-# 69a: Dark mode — dangerous label uses dark-mode color (#f38ba8)
-check("#f38ba8" in _s69_lbl1.text(),
+# 69a: Dark mode — dangerous label uses the dark required color
+check(scaffold.DARK_COLORS["required"] in _s69_lbl1.text(),
       f"69a: dangerous label has dark-mode color in dark theme: {_s69_lbl1.text()}")
 
-# 69b: Toggle to light mode — dangerous label updates to "red"
+# 69b: Toggle to light mode — dangerous label updates to the light required color
 scaffold.apply_theme(False)
 app.processEvents()
 _s69_f1.update_theme()
 app.processEvents()
-check("red" in _s69_lbl1.text() and "#f38ba8" not in _s69_lbl1.text(),
+check(scaffold.LIGHT_COLORS["required"] in _s69_lbl1.text() and scaffold.DARK_COLORS["required"] not in _s69_lbl1.text(),
       f"69b: dangerous label updated to light-mode color after toggle: {_s69_lbl1.text()}")
 
 _s69_w1.close(); _s69_w1.deleteLater(); app.processEvents()
@@ -8371,16 +8371,16 @@ _s69_f2 = _s69_w2.form
 _s69_k2 = (_s69_f2.GLOBAL, "--old")
 _s69_lbl2 = _s69_f2.fields[_s69_k2]["label"]
 
-# 69c: Dark mode — deprecated label uses dark warning_text color (#fab387)
-check("#fab387" in _s69_lbl2.text(),
+# 69c: Dark mode — deprecated label uses the dark warning_text color
+check(scaffold.DARK_COLORS["warning_text"] in _s69_lbl2.text(),
       f"69c: deprecated label has dark-mode color in dark theme: {_s69_lbl2.text()}")
 
-# 69d: Toggle to light mode — deprecated label updates to #856404
+# 69d: Toggle to light mode — deprecated label updates to the light warning_text color
 scaffold.apply_theme(False)
 app.processEvents()
 _s69_f2.update_theme()
 app.processEvents()
-check("#856404" in _s69_lbl2.text() and "#fab387" not in _s69_lbl2.text(),
+check(scaffold.LIGHT_COLORS["warning_text"] in _s69_lbl2.text() and scaffold.DARK_COLORS["warning_text"] not in _s69_lbl2.text(),
       f"69d: deprecated label updated to light-mode color after toggle: {_s69_lbl2.text()}")
 
 _s69_w2.close(); _s69_w2.deleteLater(); app.processEvents()
@@ -10096,10 +10096,10 @@ app.processEvents()
 _s86_pal = app.palette()
 _s86_ttbase = _s86_pal.color(QPalette.ColorRole.ToolTipBase).name()
 _s86_tttext = _s86_pal.color(QPalette.ColorRole.ToolTipText).name()
-check(_s86_ttbase == "#f5f5f5",
-      f"86d: light-mode ToolTipBase is #f5f5f5 (got {_s86_ttbase})")
-check(_s86_tttext == "#1a1a1a",
-      f"86d: light-mode ToolTipText is #1a1a1a (got {_s86_tttext})")
+check(_s86_ttbase == scaffold.LIGHT_COLORS["widget"],
+      f"86d: light-mode ToolTipBase is the light widget color (got {_s86_ttbase})")
+check(_s86_tttext == scaffold.LIGHT_COLORS["text"],
+      f"86d: light-mode ToolTipText is the light text color (got {_s86_tttext})")
 check("QToolTip" in app.styleSheet(),
       "86d: light-mode stylesheet contains QToolTip rule")
 
@@ -14931,15 +14931,15 @@ check(len(_s130_dlg._result_captures) == 0,
 # Check invalid rows have red highlights
 _s130_name1 = _s130_dlg._table.item(1, 0)  # bad name! row
 _s130_name2 = _s130_dlg._table.item(2, 0)  # no_pat row
-check(_s130_name1 is not None and _s130_name1.background().color().name() == "#553333",
+check(_s130_name1 is not None and _s130_name1.background().color().name() == scaffold._c("error_bg"),
       "130a: bad-name row has red highlight on name cell")
 
 # Check valid row's cells are NOT red-highlighted
 _s130_name0 = _s130_dlg._table.item(0, 0)  # valid row
 _s130_grp0 = _s130_dlg._table.item(0, 3)   # valid row group
-check(_s130_name0 is not None and _s130_name0.background().color().name() != "#553333",
+check(_s130_name0 is not None and _s130_name0.background().color().name() != scaffold._c("error_bg"),
       "130a: valid row name cell is not red-highlighted")
-check(_s130_grp0 is not None and _s130_grp0.background().color().name() != "#553333",
+check(_s130_grp0 is not None and _s130_grp0.background().color().name() != scaffold._c("error_bg"),
       "130a: valid row group cell is not red-highlighted")
 
 # 130b: Group must be integer error included in combined message
@@ -14992,7 +14992,7 @@ _s130_dlg4._on_accept()
 app.processEvents()
 
 # Manually set valid row's name cell to red (simulating leftover from prior attempt)
-_s130_dlg4._table.item(0, 0).setBackground(QColor("#553333"))
+_s130_dlg4._table.item(0, 0).setBackground(QColor(scaffold._c("error_bg")))
 
 # Fix row 2 name, re-validate
 _s130_dlg4._table.item(1, 0).setText("fixed_name")
@@ -15003,7 +15003,7 @@ app.processEvents()
 check(len(_s130_warnings) == 0,
       "130d: no warnings after fixing invalid row")
 _s130_name0d = _s130_dlg4._table.item(0, 0)
-check(_s130_name0d.background().color().name() != "#553333",
+check(_s130_name0d.background().color().name() != scaffold._c("error_bg"),
       "130d: previously-highlighted valid row's highlight cleared")
 check(len(_s130_dlg4._result_captures) == 2,
       f"130d: both captures accepted, got {len(_s130_dlg4._result_captures)}")
@@ -15059,13 +15059,13 @@ _s131_flag0 = _s131_dlg._table.item(0, 1)  # --port row 1
 _s131_flag1 = _s131_dlg._table.item(1, 1)  # --host row 2
 _s131_flag2 = _s131_dlg._table.item(2, 1)  # --port row 3
 _s131_flag3 = _s131_dlg._table.item(3, 1)  # --output row 4
-check(_s131_flag0.background().color().name() == "#553333",
+check(_s131_flag0.background().color().name() == scaffold._c("error_bg"),
       "131a: row 1 flag cell is red (duplicate)")
-check(_s131_flag1.background().color().name() != "#553333",
+check(_s131_flag1.background().color().name() != scaffold._c("error_bg"),
       "131a: row 2 flag cell is NOT red (unique)")
-check(_s131_flag2.background().color().name() == "#553333",
+check(_s131_flag2.background().color().name() == scaffold._c("error_bg"),
       "131a: row 3 flag cell is red (duplicate)")
-check(_s131_flag3.background().color().name() != "#553333",
+check(_s131_flag3.background().color().name() != scaffold._c("error_bg"),
       "131a: row 4 flag cell is NOT red (unique)")
 
 # 131b: Three-way duplicate (rows 1, 2, 3 all --foo)
@@ -15105,9 +15105,9 @@ check(len(_s131_dlg._result_variables) == 4,
 # All flag cells should be clear now
 _s131_flag0c = _s131_dlg._table.item(0, 1)
 _s131_flag2c = _s131_dlg._table.item(2, 1)
-check(_s131_flag0c.background().color().name() != "#553333",
+check(_s131_flag0c.background().color().name() != scaffold._c("error_bg"),
       "131c: row 1 flag highlight cleared after fix")
-check(_s131_flag2c.background().color().name() != "#553333",
+check(_s131_flag2c.background().color().name() != scaffold._c("error_bg"),
       "131c: row 3 flag highlight cleared after fix")
 
 # Restore QMessageBox.warning
@@ -15185,7 +15185,7 @@ for _s132_flag in _s132_invalid_flags:
           f"132c: flag '{_s132_flag}' → dialog did not accept")
     # Check flag cell is red
     _s132_fi = _s132_idlg._table.item(0, 1)
-    check(_s132_fi is not None and _s132_fi.background().color().name() == "#553333",
+    check(_s132_fi is not None and _s132_fi.background().color().name() == scaffold._c("error_bg"),
           f"132c: flag '{_s132_flag}' → flag cell highlighted red")
     _s132_idlg.deleteLater()
 

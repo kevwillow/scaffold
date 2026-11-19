@@ -3,6 +3,14 @@
 All notable changes to Scaffold are documented here.
 
 
+## [Unreleased]
+
+### Changed
+
+- **New light and dark themes.** Both themes now come from one set of color tokens (`LIGHT_COLORS` / `DARK_COLORS`, read with `_c()`) and one shared stylesheet, replacing about 60 scattered light/dark branches. Light mode is a full theme instead of stock OS controls; dark mode moves from Catppuccin to a neutral graphite with a blue accent. Both get 6-8px rounded corners, an accent focus border, hover states, drawn checkmarks, softer table grids, and a solid green Run button. The output panel stays dark in both.
+- Invalid cells in the cascade variable editor use the theme's error tint; the fixed dark maroon was hard to read in light mode.
+- The Copy format dropdown arrow is themed instead of drawn natively.
+
 ## [v2.13.2] — Unreleased
 
 Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixes that were each reproduced against v2.13.1 before changing code. Every behavioral fix has a regression check in new `test_functional.py` sections §211 to §216, and each check was confirmed to fail on v2.13.1. Three v2.13.1 tests that were red on Linux/macOS (§107a to §107c, `test_security` 12b) now pass there.

@@ -1053,7 +1053,6 @@ from PySide6.QtWidgets import (  # noqa: E402
 
 
 _dark_mode = False
-_original_palette = None
 _arrow_dir = None
 _arrow_cleanup_registered = False
 
@@ -1065,7 +1064,10 @@ def _cleanup_arrow_dir():
 
 
 def _make_arrow_icons():
-    """Generate small arrow PNGs for dark mode dropdown/spinbox controls."""
+    """Generate the small arrow and checkmark PNGs the stylesheet references.
+
+    One set per theme, named ``<shape>-<theme>.png``, all in one temp dir.
+    """
     global _arrow_dir, _arrow_cleanup_registered
     if _arrow_dir is not None:
         return _arrow_dir
@@ -1076,77 +1078,136 @@ def _make_arrow_icons():
     if not _arrow_cleanup_registered:
         atexit.register(_cleanup_arrow_dir)
         _arrow_cleanup_registered = True
-    color = QColor(DARK_COLORS["text"])
-    for name, points in [
-        ("down", [(1, 2), (5, 6), (9, 2)]),
-        ("up", [(1, 6), (5, 2), (9, 6)]),
-    ]:
-        img = QImage(10, 8, QImage.Format.Format_ARGB32)
+    for theme, colors in THEMES.items():
+        arrow = QColor(colors["text_dim"])
+        for name, points in [
+            ("down", [(1, 2), (5, 6), (9, 2)]),
+            ("up", [(1, 6), (5, 2), (9, 6)]),
+        ]:
+            img = QImage(10, 8, QImage.Format.Format_ARGB32)
+            img.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(img)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(arrow)
+            painter.drawPolygon(QPolygon([QPoint(*p) for p in points]))
+            painter.end()
+            img.save(f"{_arrow_dir}/{name}-{theme}.png")
+        # Checkmark drawn on the accent-filled checkbox indicator
+        img = QImage(12, 12, QImage.Format.Format_ARGB32)
         img.fill(Qt.GlobalColor.transparent)
         painter = QPainter(img)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(color)
-        painter.drawPolygon(QPolygon([QPoint(*p) for p in points]))
+        pen = QPen(QColor(colors["accent_text"]), 1.8)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.drawPolyline(QPolygon([QPoint(2, 6), QPoint(5, 9), QPoint(10, 3)]))
         painter.end()
-        img.save(f"{_arrow_dir}/{name}.png")
+        img.save(f"{_arrow_dir}/check-{theme}.png")
     return _arrow_dir
 
 
-DARK_COLORS = {
-    "window": "#1e1e2e",
-    "widget": "#2a2a3c",
-    "input": "#313244",
-    "text": "#cdd6f4",
-    "text_dim": "#a6adc8",
-    "accent": "#89b4fa",
-    "selection": "#45475a",
-    "border": "#585b70",
-    "required": "#f38ba8",
-    "disabled": "#6c7086",
-    "success": "#a6e3a1",
-    "error": "#f38ba8",
-    "stderr": "#fab387",
-    "output_bg": "#11111b",
-    "output_text": "#cdd6f4",
-    "command": "#89b4fa",
-    "warning_bg": "#45475a",
-    "warning_text": "#fab387",
-    "warning_border": "#585b70",
+# Theme tokens. Both themes define the same keys; read the active one with _c().
+LIGHT_COLORS = {
+    "window": "#f6f7f9",          # app background
+    "widget": "#ffffff",          # buttons, menus, panels
+    "input": "#ffffff",           # text fields, lists, tables
+    "hover": "#f0f2f5",           # hovered buttons and menu bar items
+    "header_bg": "#eef0f3",       # table headers, picker folder rows
+    "dim_bg": "#eceef1",          # disabled fields and cells
+    "text": "#1f2328",
+    "text_dim": "#636c76",
+    "accent": "#2563eb",
+    "accent_text": "#ffffff",     # text and icons drawn on the accent color
+    "selection": "#e1e9fb",       # selected rows and items (accent tint)
+    "border": "#d5dae1",
+    "border_strong": "#b8bfc8",   # hovered field borders
+    "grid": "#eaedf0",            # table grid lines
+    "required": "#cf222e",
+    "disabled": "#8c959f",
+    "success": "#1a7f37",
+    "success_bg": "#1f883d",      # Run button (solid)
+    "success_bg_hover": "#1a7f37",
+    "error": "#cf222e",
+    "error_bg": "#ffe1e1",        # Stop button, invalid table cells
+    "error_bg_hover": "#ffcfcf",
+    "warning_bg": "#fff8e1",
+    "warning_text": "#8a5a00",
+    "warning_border": "#f0c75e",
+    "search_highlight": "#fff3a3",
+    "link": "#2563eb",
+    "output_bg": "#16181d",       # the output panel stays dark in both themes
+    "output_text": "#e4e6ea",
 }
+
+DARK_COLORS = {
+    "window": "#17191e",
+    "widget": "#1f2228",
+    "input": "#24272e",
+    "hover": "#2a2e36",
+    "header_bg": "#22252b",
+    "dim_bg": "#2a2d33",
+    "text": "#e4e6ea",
+    "text_dim": "#9ba1aa",
+    "accent": "#5c9dff",
+    "accent_text": "#0f1114",
+    "selection": "#2b3a52",
+    "border": "#363b44",
+    "border_strong": "#4a505b",
+    "grid": "#2c3038",
+    "required": "#f2777a",
+    "disabled": "#666d77",
+    "success": "#56c271",
+    "success_bg": "#238636",
+    "success_bg_hover": "#2ea043",
+    "error": "#f2777a",
+    "error_bg": "#3d2326",
+    "error_bg_hover": "#4b2a2e",
+    "warning_bg": "#2f2817",
+    "warning_text": "#e3b341",
+    "warning_border": "#5a4a1f",
+    "search_highlight": "#4a4128",
+    "link": "#5c9dff",
+    "output_bg": "#0f1114",
+    "output_text": "#e4e6ea",
+}
+
+THEMES = {"light": LIGHT_COLORS, "dark": DARK_COLORS}
+
+
+def _c(key: str) -> str:
+    """Return the active theme's color for a token."""
+    return (DARK_COLORS if _dark_mode else LIGHT_COLORS)[key]
+
 
 # Preview syntax coloring — light mode
 LIGHT_PREVIEW = {
-    "binary": "#0550ae",       # blue, bold
-    "flag": "#953800",         # amber/orange
-    "value": "#24292f",        # default text
-    "subcommand": "#0550ae",   # blue, bold
-    "extra": "#656d76",        # dimmed gray
+    "binary": "#1d4ed8",       # blue, bold
+    "flag": "#9a4a00",         # amber/orange
+    "value": "#1f2328",        # default text
+    "subcommand": "#1d4ed8",   # blue, bold
+    "extra": "#636c76",        # dimmed gray
 }
 
 # Preview syntax coloring — dark mode
 DARK_PREVIEW = {
-    "binary": "#89b4fa",       # light blue, bold
-    "flag": "#fab387",         # peach/orange
-    "value": "#cdd6f4",        # default text
-    "subcommand": "#89b4fa",   # light blue, bold
-    "extra": "#a6adc8",        # dimmed
+    "binary": "#5c9dff",       # blue, bold
+    "flag": "#f0a868",         # peach/orange
+    "value": "#e4e6ea",        # default text
+    "subcommand": "#5c9dff",   # blue, bold
+    "extra": "#9ba1aa",        # dimmed
 }
 
 
 # Status/output colors — theme-independent (output panel is always dark)
-COLOR_OK = "#4ec94e"       # success green
-COLOR_ERR = "#e05555"      # error red
-COLOR_WARN = "#e8a838"     # warning amber (stderr, stopped, cancelled)
-COLOR_CMD = "#569cd6"      # command echo blue
-COLOR_DIM = "#888888"      # dimmed text (unavailable tools in picker)
-OUTPUT_BG = "#1e1e1e"      # output panel background
-OUTPUT_FG = "#d4d4d4"      # output panel default foreground
-
-# Light-mode warning bar colors
-LIGHT_WARNING_BG = "#fff3cd"
-LIGHT_WARNING_FG = "#856404"
-LIGHT_WARNING_BORDER = "#ffc107"
+COLOR_OK = "#56c271"       # success green
+COLOR_ERR = "#f2777a"      # error red
+COLOR_WARN = "#e3b341"     # warning amber (stderr, stopped, cancelled)
+COLOR_CMD = "#5c9dff"      # command echo blue
+COLOR_DIM = "#8b929c"      # dimmed text (unavailable tools in picker)
+OUTPUT_BG = LIGHT_COLORS["output_bg"]    # output panel background (light theme)
+OUTPUT_FG = LIGHT_COLORS["output_text"]  # output panel default foreground
 
 
 def _detect_system_dark() -> bool:
@@ -1171,153 +1232,170 @@ def _detect_system_dark() -> bool:
     return False
 
 
+def _build_palette(C: dict) -> QPalette:
+    """Return a QPalette for the given theme tokens."""
+    palette = QPalette()
+    for role, key in (
+        (QPalette.ColorRole.Window, "window"),
+        (QPalette.ColorRole.WindowText, "text"),
+        (QPalette.ColorRole.Base, "input"),
+        (QPalette.ColorRole.AlternateBase, "header_bg"),
+        (QPalette.ColorRole.Text, "text"),
+        (QPalette.ColorRole.Button, "widget"),
+        (QPalette.ColorRole.ButtonText, "text"),
+        (QPalette.ColorRole.Highlight, "accent"),
+        (QPalette.ColorRole.HighlightedText, "accent_text"),
+        (QPalette.ColorRole.ToolTipBase, "widget"),
+        (QPalette.ColorRole.ToolTipText, "text"),
+        (QPalette.ColorRole.PlaceholderText, "disabled"),
+        (QPalette.ColorRole.Link, "link"),
+    ):
+        palette.setColor(role, QColor(C[key]))
+    for role in (QPalette.ColorRole.WindowText, QPalette.ColorRole.Text, QPalette.ColorRole.ButtonText):
+        palette.setColor(QPalette.ColorGroup.Disabled, role, QColor(C["disabled"]))
+    return palette
+
+
+def _build_stylesheet(C: dict, icons: str, theme: str) -> str:
+    """Return the application stylesheet for the given theme tokens.
+
+    Paddings keep fields close to their native heights (~26px). Scrollbars
+    are deliberately NOT styled: QSS scrollbars replace the native renderer
+    and lose its animations and arrow buttons. apply_theme's setColorScheme()
+    makes the native ones follow the theme instead.
+    """
+    return (
+        # Menu bar and menus
+        f"QMenuBar {{ background-color: {C['window']}; color: {C['text']};"
+        f"  border-bottom: 1px solid {C['border']}; }}"
+        f"QMenuBar::item {{ background: transparent; padding: 4px 10px; border-radius: 4px; }}"
+        f"QMenuBar::item:selected {{ background-color: {C['hover']}; }}"
+        f"QMenu {{ background-color: {C['widget']}; color: {C['text']};"
+        f"  border: 1px solid {C['border']}; border-radius: 8px; padding: 4px; }}"
+        f"QMenu::item {{ padding: 5px 24px 5px 24px; border-radius: 4px; }}"
+        f"QMenu::item:selected {{ background-color: {C['selection']}; }}"
+        f"QMenu::item:disabled {{ color: {C['disabled']}; }}"
+        f"QMenu::separator {{ height: 1px; background: {C['border']}; margin: 4px 8px; }}"
+        # Checkboxes — padding restores Fusion's native sizeHint height
+        f"QCheckBox {{ color: {C['text']}; padding: 4px 0; spacing: 8px; }}"
+        f"QCheckBox::indicator {{ width: 14px; height: 14px; background-color: {C['input']};"
+        f"  border: 1px solid {C['border_strong']}; border-radius: 4px; }}"
+        f"QCheckBox::indicator:hover {{ border-color: {C['accent']}; }}"
+        f"QCheckBox::indicator:checked {{ background-color: {C['accent']};"
+        f"  border-color: {C['accent']}; image: url({icons}/check-{theme}.png); }}"
+        f"QCheckBox::indicator:disabled {{ background-color: {C['dim_bg']}; border-color: {C['border']}; }}"
+        # Comboboxes (dropdowns)
+        f"QComboBox {{ background-color: {C['input']}; color: {C['text']};"
+        f"  border: 1px solid {C['border']}; border-radius: 6px; padding: 3px 8px; }}"
+        f"QComboBox:hover {{ border-color: {C['border_strong']}; }}"
+        f"QComboBox:focus {{ border-color: {C['accent']}; }}"
+        f"QComboBox:disabled {{ color: {C['disabled']}; background-color: {C['dim_bg']}; }}"
+        f"QComboBox::drop-down {{ border: none; width: 22px; }}"
+        f"QComboBox::down-arrow {{ image: url({icons}/down-{theme}.png); width: 10px; height: 8px; }}"
+        f"QComboBox QAbstractItemView {{ background-color: {C['widget']}; color: {C['text']};"
+        f"  selection-background-color: {C['selection']}; selection-color: {C['text']};"
+        f"  border: 1px solid {C['border']}; outline: 0; padding: 4px; }}"
+        # Spinboxes — padding keeps them within 2px of the native 22px
+        f"QSpinBox, QDoubleSpinBox {{ background-color: {C['input']}; color: {C['text']};"
+        f"  border: 1px solid {C['border']}; border-radius: 6px; padding: 0px 4px; }}"
+        f"QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: {C['border_strong']}; }}"
+        f"QSpinBox:focus, QDoubleSpinBox:focus {{ border-color: {C['accent']}; }}"
+        f"QSpinBox::up-button, QDoubleSpinBox::up-button"
+        f"  {{ subcontrol-origin: border; subcontrol-position: top right;"
+        f"  width: 18px; background: transparent; border: none; }}"
+        f"QSpinBox::down-button, QDoubleSpinBox::down-button"
+        f"  {{ subcontrol-origin: border; subcontrol-position: bottom right;"
+        f"  width: 18px; background: transparent; border: none; }}"
+        f"QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,"
+        f" QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover"
+        f"  {{ background-color: {C['hover']}; }}"
+        f"QSpinBox::up-arrow, QDoubleSpinBox::up-arrow"
+        f"  {{ image: url({icons}/up-{theme}.png); width: 10px; height: 8px; }}"
+        f"QSpinBox::down-arrow, QDoubleSpinBox::down-arrow"
+        f"  {{ image: url({icons}/down-{theme}.png); width: 10px; height: 8px; }}"
+        # Line edits — padding restores the 26px height
+        f"QLineEdit {{ background-color: {C['input']}; color: {C['text']};"
+        f"  border: 1px solid {C['border']}; border-radius: 6px; padding: 3px 6px;"
+        f"  selection-background-color: {C['accent']}; selection-color: {C['accent_text']}; }}"
+        f"QLineEdit:hover {{ border-color: {C['border_strong']}; }}"
+        f"QLineEdit:focus {{ border-color: {C['accent']}; }}"
+        f"QLineEdit:disabled {{ color: {C['disabled']}; background-color: {C['dim_bg']}; }}"
+        # Multi-line text (extra flags, text fields, preview, output)
+        f"QPlainTextEdit, QTextEdit {{ background-color: {C['input']}; color: {C['text']};"
+        f"  border: 1px solid {C['border']}; border-radius: 6px; padding: 2px;"
+        f"  selection-background-color: {C['accent']}; selection-color: {C['accent_text']}; }}"
+        f"QPlainTextEdit:focus, QTextEdit:focus {{ border-color: {C['accent']}; }}"
+        # Lists, trees and tables
+        f"QListWidget, QTreeWidget, QTableWidget {{ background-color: {C['input']}; color: {C['text']};"
+        f"  border: 1px solid {C['border']}; border-radius: 6px; outline: 0;"
+        f"  gridline-color: {C['grid']}; }}"
+        f"QListWidget::item, QTreeWidget::item {{ padding: 3px 2px; }}"
+        f"QListWidget::item:selected, QTreeWidget::item:selected, QTableWidget::item:selected"
+        f"  {{ background-color: {C['selection']}; color: {C['text']}; }}"
+        f"QHeaderView::section {{ background-color: {C['header_bg']}; color: {C['text_dim']};"
+        f"  border: none; border-right: 1px solid {C['border']};"
+        f"  border-bottom: 1px solid {C['border']}; padding: 5px 8px; font-weight: 600; }}"
+        f"QTableCornerButton::section {{ background-color: {C['header_bg']}; border: none; }}"
+        # Group boxes
+        f"QGroupBox {{ color: {C['text']}; border: 1px solid {C['border']};"
+        f"  border-radius: 8px; margin-top: 18px; padding-top: 6px; }}"
+        f"QGroupBox::title {{ color: {C['text']}; font-weight: 600;"
+        f"  subcontrol-origin: margin; padding: 2px 4px 0 4px; left: 10px; }}"
+        # Buttons
+        f"QPushButton, QToolButton {{ background-color: {C['widget']}; color: {C['text']};"
+        f"  border: 1px solid {C['border']}; border-radius: 6px; padding: 4px 14px; }}"
+        f"QToolButton {{ padding: 4px 6px; }}"
+        # Split menu buttons (Copy format) and their arrow; native ones clash with the theme
+        f"QToolButton[popupMode=\"1\"] {{ padding-right: 22px; }}"
+        f"QToolButton::menu-button {{ border: none; border-left: 1px solid {C['border']}; width: 20px;"
+        f"  border-top-right-radius: 6px; border-bottom-right-radius: 6px; }}"
+        f"QToolButton::menu-button:hover {{ background-color: {C['hover']}; }}"
+        f"QToolButton::menu-arrow, QToolButton::menu-indicator"
+        f"  {{ image: url({icons}/down-{theme}.png); width: 10px; height: 8px; }}"
+        f"QPushButton:hover, QToolButton:hover {{ background-color: {C['hover']};"
+        f"  border-color: {C['border_strong']}; }}"
+        f"QPushButton:pressed, QToolButton:pressed {{ background-color: {C['selection']}; }}"
+        f"QPushButton:focus, QToolButton:focus {{ border-color: {C['accent']}; }}"
+        f"QPushButton:disabled, QToolButton:disabled {{ color: {C['disabled']};"
+        f"  background-color: {C['window']}; border-color: {C['border']}; }}"
+        # Dock widgets (cascade sidebar)
+        f"QDockWidget {{ color: {C['text']}; }}"
+        f"QDockWidget::title {{ background-color: {C['header_bg']}; padding: 6px 8px;"
+        f"  border-bottom: 1px solid {C['border']}; }}"
+        # Tooltips
+        f"QToolTip {{ background-color: {C['widget']}; color: {C['text']};"
+        f"  border: 1px solid {C['border']}; border-radius: 6px; padding: 4px 6px; }}"
+        # Status bar
+        f"QStatusBar {{ color: {C['text_dim']}; background-color: {C['window']};"
+        f"  border-top: 1px solid {C['border']}; }}"
+    )
+
+
 def apply_theme(dark: bool) -> None:
-    """Apply or remove the dark palette and stylesheet application-wide."""
-    global _dark_mode, _original_palette
+    """Apply the light or dark palette and stylesheet application-wide."""
+    global _dark_mode
     _dark_mode = dark
     app = QApplication.instance()
-    if _original_palette is None:
-        _original_palette = QPalette(app.palette())
-    if dark:
-        # Tell the platform to use its native dark mode for controls that
-        # are not overridden by QSS (notably scrollbars).  This preserves
-        # all native behavior — smooth animations, hover expansion, arrow
-        # buttons — with dark colors, because the same native renderer
-        # draws them.  Requires Qt 6.8+ (PySide6 6.8+); gracefully ignored
-        # on older versions where scrollbars will fall back to palette hints.
-        try:
-            app.styleHints().setColorScheme(Qt.ColorScheme.Dark)
-        except AttributeError:
-            pass  # Qt < 6.8 — native dark scrollbars not available
-        palette = QPalette()
-        palette.setColor(QPalette.ColorRole.Window, QColor(DARK_COLORS["window"]))
-        palette.setColor(QPalette.ColorRole.WindowText, QColor(DARK_COLORS["text"]))
-        palette.setColor(QPalette.ColorRole.Base, QColor(DARK_COLORS["input"]))
-        palette.setColor(QPalette.ColorRole.AlternateBase, QColor(DARK_COLORS["widget"]))
-        palette.setColor(QPalette.ColorRole.Text, QColor(DARK_COLORS["text"]))
-        palette.setColor(QPalette.ColorRole.Button, QColor(DARK_COLORS["widget"]))
-        palette.setColor(QPalette.ColorRole.ButtonText, QColor(DARK_COLORS["text"]))
-        palette.setColor(QPalette.ColorRole.Highlight, QColor(DARK_COLORS["accent"]))
-        palette.setColor(QPalette.ColorRole.HighlightedText, QColor(DARK_COLORS["window"]))
-        palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(DARK_COLORS["widget"]))
-        palette.setColor(QPalette.ColorRole.ToolTipText, QColor(DARK_COLORS["text"]))
-        palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(DARK_COLORS["disabled"]))
-        palette.setColor(QPalette.ColorRole.Link, QColor(DARK_COLORS["accent"]))
-        palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor(DARK_COLORS["disabled"]))
-        palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(DARK_COLORS["disabled"]))
-        palette.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(DARK_COLORS["disabled"]))
-        app.setPalette(palette)
-        arrow_dir = (_make_arrow_icons() or "").replace("\\", "/")
-        C = {**DARK_COLORS, "arrow_dir": arrow_dir}
-        app.setStyleSheet(
-            # Menu bar and menus
-            f"QMenuBar {{ background-color: {C['widget']}; color: {C['text']}; }}"
-            f"QMenuBar::item {{ background: transparent; padding: 4px 10px; }}"
-            f"QMenuBar::item:selected {{ background-color: {C['selection']}; }}"
-            f"QMenu {{ background-color: {C['widget']}; color: {C['text']};"
-            f"  border: 1px solid {C['border']}; border-radius: 3px; }}"
-            f"QMenu::item:selected {{ background-color: {C['selection']}; }}"
-            # Checkboxes — padding restores Fusion's native sizeHint height
-            f"QCheckBox {{ color: {C['text']}; padding: 4px 0; }}"
-            f"QCheckBox::indicator {{ background-color: {C['selection']};"
-            f"  border: 1px solid {C['border']}; border-radius: 2px; }}"
-            f"QCheckBox::indicator:checked {{ background-color: {C['accent']};"
-            f"  border: 1px solid {C['accent']}; border-radius: 2px; }}"
-            # Comboboxes (dropdowns) — padding: 3px 4px restores 26px height
-            f"QComboBox {{ background-color: {C['input']}; color: {C['text']};"
-            f"  border: 1px solid {C['border']}; border-radius: 3px;"
-            f"  padding: 3px 4px; }}"
-            f"QComboBox QAbstractItemView {{ background-color: {C['widget']};"
-            f"  color: {C['text']}; selection-background-color: {C['selection']};"
-            f"  selection-color: {C['text']}; border: 1px solid {C['border']};"
-            f"  border-radius: 3px; }}"
-            f"QComboBox::drop-down {{ border-left: 1px solid {C['border']};"
-            f"  background-color: {C['selection']}; }}"
-            f"QComboBox::down-arrow {{ image: url({C['arrow_dir']}/down.png);"
-            f"  width: 10px; height: 8px; }}"
-            # Spinboxes — padding: 0px 2px yields ~24px, within 2px of native 22px
-            f"QSpinBox, QDoubleSpinBox {{ background-color: {C['input']};"
-            f"  color: {C['text']}; border: 1px solid {C['border']};"
-            f"  border-radius: 3px; padding: 0px 2px; }}"
-            f"QSpinBox::up-button, QDoubleSpinBox::up-button"
-            f"  {{ subcontrol-origin: border; subcontrol-position: top right;"
-            f"  background-color: {C['selection']}; border: 1px solid {C['border']}; }}"
-            f"QSpinBox::down-button, QDoubleSpinBox::down-button"
-            f"  {{ subcontrol-origin: border; subcontrol-position: bottom right;"
-            f"  background-color: {C['selection']}; border: 1px solid {C['border']}; }}"
-            f"QSpinBox::up-arrow, QDoubleSpinBox::up-arrow"
-            f"  {{ image: url({C['arrow_dir']}/up.png); width: 10px; height: 8px; }}"
-            f"QSpinBox::down-arrow, QDoubleSpinBox::down-arrow"
-            f"  {{ image: url({C['arrow_dir']}/down.png); width: 10px; height: 8px; }}"
-            # Line edits — padding: 3px restores 26px height
-            f"QLineEdit {{ background-color: {C['input']}; color: {C['text']};"
-            f"  border: 1px solid {C['border']}; border-radius: 3px;"
-            f"  padding: 3px; }}"
-            # List widgets (multi_enum)
-            f"QListWidget {{ background-color: {C['input']}; color: {C['text']};"
-            f"  border: 1px solid {C['border']}; border-radius: 3px; }}"
-            f"QListWidget::item:selected {{ background-color: {C['selection']};"
-            f"  color: {C['text']}; }}"
-            # Group boxes
-            f"QGroupBox {{ color: {C['text']}; border: 1px solid {C['border']};"
-            f"  border-radius: 4px; margin-top: 18px; padding-top: 4px; }}"
-            f"QGroupBox::title {{ color: {C['text']};"
-            f"  subcontrol-origin: margin; padding: 2px 4px 0 4px; left: 8px; }}"
-            # Table (tool picker)
-            f"QTableWidget {{ background-color: {C['input']}; color: {C['text']};"
-            f"  gridline-color: {C['border']}; }}"
-            f"QTableWidget::item:selected {{ background-color: {C['selection']};"
-            f"  color: {C['text']}; }}"
-            f"QHeaderView::section {{ background-color: {C['widget']};"
-            f"  color: {C['text']}; border: 1px solid {C['border']}; padding: 4px; }}"
-            # NOTE: Scrollbars are NOT styled via QSS — doing so replaces the
-            # native renderer and loses smooth animations, hover expansion, and
-            # arrow buttons.  Instead, setColorScheme(Dark) tells the platform
-            # to render native controls (including scrollbars) in dark mode.
-            # Buttons
-            f"QPushButton {{ background-color: {C['widget']}; color: {C['text']};"
-            f"  border: 1px solid {C['border']}; border-radius: 3px;"
-            f"  padding: 4px 12px; }}"
-            f"QPushButton:hover {{ background-color: {C['selection']}; }}"
-            f"QPushButton:pressed {{ background-color: {C['input']}; }}"
-            # Plain text edits (extra flags, text-type fields)
-            f"QPlainTextEdit {{ background-color: {C['input']}; color: {C['text']};"
-            f"  border: 1px solid {C['border']}; border-radius: 3px;"
-            f"  padding: 1px; }}"
-            # Tooltips
-            f"QToolTip {{ background-color: {C['widget']}; color: {C['text']};"
-            f"  border: 1px solid {C['border']}; border-radius: 3px; }}"
-            # Status bar
-            f"QStatusBar {{ color: {C['text']}; }}"
-        )
-    else:
-        # Restore native light color scheme for platform controls.
-        try:
-            app.styleHints().setColorScheme(Qt.ColorScheme.Light)
-        except AttributeError:
-            pass
-        app.setPalette(_original_palette)
-        # Force readable tooltip colors regardless of OS theme.
-        # On Linux with mixed-theme desktops, _original_palette can have
-        # unreadable tooltip color combinations.
-        light_palette = app.palette()
-        light_palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#f5f5f5"))
-        light_palette.setColor(QPalette.ColorRole.ToolTipText, QColor("#1a1a1a"))
-        app.setPalette(light_palette)
-        app.setStyleSheet(
-            "QToolTip { background-color: #f5f5f5; color: #1a1a1a;"
-            " border: 1px solid #c0c0c0; border-radius: 3px; padding: 2px; }"
-        )
+    theme = "dark" if dark else "light"
+    C = THEMES[theme]
+    # Tell the platform which native scheme to use for controls the QSS
+    # leaves alone (notably scrollbars). Requires Qt 6.8+ (PySide6 6.8+).
+    try:
+        app.styleHints().setColorScheme(Qt.ColorScheme.Dark if dark else Qt.ColorScheme.Light)
+    except AttributeError:
+        pass  # Qt < 6.8 — scrollbars fall back to palette hints
+    app.setPalette(_build_palette(C))
+    icons = (_make_arrow_icons() or "").replace("\\", "/")
+    app.setStyleSheet(_build_stylesheet(C, icons, theme))
 
 
 def _invalid_style() -> str:
     """Return a QSS border style string for invalid/failed-validation fields."""
-    c = DARK_COLORS["required"]
-    return f"border: 1px solid {c};" if _dark_mode else "border: 1px solid red;"
+    return f"border: 1px solid {_c('required')};"
 
 
 def _required_color() -> str:
-    return DARK_COLORS["required"] if _dark_mode else "red"
+    return _c("required")
 
 
 class DragHandle(QWidget):
@@ -1341,7 +1419,7 @@ class DragHandle(QWidget):
     def paintEvent(self, event) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        color = QColor(DARK_COLORS["disabled"] if _dark_mode else "#888888")
+        color = QColor(_c("disabled"))
         p.setPen(QPen(color, 1))
         cx = self.width() / 2
         cy = self.height() / 2
@@ -1488,7 +1566,7 @@ class ToolForm(QWidget):
         self._header_sep = QFrame()
         self._header_sep.setFrameShape(QFrame.Shape.HLine)
         self._header_sep.setFrameShadow(QFrame.Shadow.Plain)
-        color = DARK_COLORS["border"] if _dark_mode else "#999999"
+        color = _c("border")
         self._header_sep.setStyleSheet(
             f"QFrame {{ color: {color}; max-height: 1px; margin: 4px 0 2px 0; }}"
         )
@@ -1503,7 +1581,7 @@ class ToolForm(QWidget):
         self._search_index = -1
 
         self._search_no_match_label = QLabel("No matches")
-        err_color = DARK_COLORS["error"] if _dark_mode else "red"
+        err_color = _c("error")
         self._search_no_match_label.setStyleSheet(f"color: {err_color}; font-style: italic; margin-left: 4px;")
         self._search_no_match_label.setVisible(False)
         search_row = QHBoxLayout()
@@ -1526,7 +1604,7 @@ class ToolForm(QWidget):
             else:
                 note = QLabel("Some features of this tool may require elevated privileges.")
             note.setWordWrap(True)
-            note_color = DARK_COLORS["text_dim"] if _dark_mode else "gray"
+            note_color = _c("text_dim")
             note.setStyleSheet(f"color: {note_color}; font-style: italic;")
             self._elevation_note = note
             elev_row.addWidget(self.elevation_check)
@@ -1785,8 +1863,8 @@ class ToolForm(QWidget):
                     self._toggle_display_group(box)
 
         # Apply highlight — theme-aware
-        highlight = DARK_COLORS["selection"] if _dark_mode else "#fff176"
-        label.setStyleSheet(f"background-color: {highlight};")
+        highlight = _c("search_highlight")
+        label.setStyleSheet(f"background-color: {highlight}; border-radius: 3px;")
         label.setProperty("_search_highlighted", True)
 
         # Scroll into view
@@ -1810,11 +1888,11 @@ class ToolForm(QWidget):
             label_text = f"<b>{label_text} <span style='color:{_required_color()};'>*</span></b>"
         # Dangerous: prepend red warning symbol
         if arg.get("dangerous"):
-            warn_color = DARK_COLORS["required"] if _dark_mode else "red"
+            warn_color = _c("required")
             label_text = f"<span style='color:{warn_color};'>\u26a0</span> {label_text}"
         # Deprecated: strikethrough + colored suffix
         if arg.get("deprecated"):
-            dep_color = DARK_COLORS["warning_text"] if _dark_mode else "#856404"
+            dep_color = _c("warning_text")
             label_text = f"<s>{label_text}</s> <span style='color:{dep_color};'>(deprecated)</span>"
         label = QLabel(label_text)
         label.setTextFormat(Qt.TextFormat.RichText)
@@ -2725,8 +2803,8 @@ class ToolForm(QWidget):
     def update_theme(self) -> None:
         """Update theme-sensitive widget styles (required labels, validation borders)."""
         req_color = _required_color()
-        warn_color = DARK_COLORS["required"] if _dark_mode else "red"
-        dep_color = DARK_COLORS["warning_text"] if _dark_mode else "#856404"
+        warn_color = _c("required")
+        dep_color = _c("warning_text")
 
         for key, field in self.fields.items():
             arg = field["arg"]
@@ -2749,16 +2827,16 @@ class ToolForm(QWidget):
             if hasattr(w, "_line_edit") and w._line_edit.styleSheet() and "border" in w._line_edit.styleSheet():
                 w._line_edit.setStyleSheet(_invalid_style())
         # Header separator
-        sep_color = DARK_COLORS["border"] if _dark_mode else "#999999"
+        sep_color = _c("border")
         self._header_sep.setStyleSheet(
             f"QFrame {{ color: {sep_color}; max-height: 1px; margin: 4px 0 2px 0; }}"
         )
         # Elevation note
         if hasattr(self, "_elevation_note"):
-            note_color = DARK_COLORS["text_dim"] if _dark_mode else "gray"
+            note_color = _c("text_dim")
             self._elevation_note.setStyleSheet(f"color: {note_color}; font-style: italic;")
         # Search no-match label
-        err_color = DARK_COLORS["error"] if _dark_mode else "red"
+        err_color = _c("error")
         self._search_no_match_label.setStyleSheet(f"color: {err_color}; font-style: italic; margin-left: 4px;")
 
     def validate_required(self) -> list[tuple]:
@@ -3982,8 +4060,8 @@ class ToolPicker(QWidget):
         self.table.setRowCount(total_rows)
         table_row = 0
 
-        header_bg = QColor(DARK_COLORS["widget"]) if _dark_mode else QColor("#e8e8e8")
-        header_fg = QColor(DARK_COLORS["text"]) if _dark_mode else QColor("#333333")
+        header_bg = QColor(_c("header_bg"))
+        header_fg = QColor(_c("text"))
         bold_font = QFont()
         bold_font.setBold(True)
 
@@ -4018,11 +4096,11 @@ class ToolPicker(QWidget):
                     status_item = QTableWidgetItem("")
                 elif available:
                     status_item = QTableWidgetItem("\u2714")  # checkmark
-                    status_item.setForeground(QColor(COLOR_OK))
+                    status_item.setForeground(QColor(_c("success")))
                     status_item.setToolTip(f"'{data['binary']}' found in PATH — ready to use")
                 else:
                     status_item = QTableWidgetItem("\u2716")  # X mark
-                    status_item.setForeground(QColor(COLOR_ERR))
+                    status_item.setForeground(QColor(_c("error")))
                     status_item.setToolTip(
                         f"<p>'{html.escape(data['binary'])}' not found in PATH. "
                         "Install it or add its location to your PATH.</p>"
@@ -4073,8 +4151,8 @@ class ToolPicker(QWidget):
         """Refresh folder-header row backgrounds for current theme."""
         if not hasattr(self, "_row_map"):
             return
-        header_bg = QColor(DARK_COLORS["widget"]) if _dark_mode else QColor("#e8e8e8")
-        header_fg = QColor(DARK_COLORS["text"]) if _dark_mode else QColor("#333333")
+        header_bg = QColor(_c("header_bg"))
+        header_fg = QColor(_c("text"))
         for r, entry in enumerate(self._row_map):
             if entry is None:  # header row
                 for col in range(self.table.columnCount()):
@@ -4797,7 +4875,7 @@ class HistoryDialog(QDialog):
         )
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_label.setWordWrap(True)
-        self.empty_label.setStyleSheet(f"color: {DARK_COLORS['disabled']}; font-size: 13px;")
+        self.empty_label.setStyleSheet(f"color: {_c('disabled')}; font-size: 13px;")
         self.empty_label.setVisible(False)
         layout.addWidget(self.empty_label, 1)
 
@@ -5087,7 +5165,7 @@ class CascadeHistoryDialog(QDialog):
         )
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_label.setWordWrap(True)
-        self.empty_label.setStyleSheet(f"color: {DARK_COLORS['disabled']}; font-size: 13px;")
+        self.empty_label.setStyleSheet(f"color: {_c('disabled')}; font-size: 13px;")
         self.empty_label.setVisible(False)
         layout.addWidget(self.empty_label, 1)
 
@@ -6882,7 +6960,7 @@ class CustomPathDialog(QDialog):
                 _load_failed = True
         if _load_failed:
             _warn_label = QLabel("Previous paths could not be loaded")
-            _warn_label.setStyleSheet("color: #c62828;")
+            _warn_label.setStyleSheet(f"color: {_c('error')};")
             layout.insertWidget(layout.indexOf(self._list), _warn_label)
         self._refresh_list()
 
@@ -6915,10 +6993,7 @@ class CustomPathDialog(QDialog):
             item = QListWidgetItem(p)
             if not Path(p).is_dir():
                 item.setText(p + "  (not found)")
-                if _dark_mode:
-                    item.setForeground(QColor(DARK_COLORS["error"]))
-                else:
-                    item.setForeground(QColor("#c62828"))
+                item.setForeground(QColor(_c("error")))
                 font = item.font()
                 font.setItalic(True)
                 item.setFont(font)
@@ -7099,9 +7174,9 @@ class CascadeVariableDefinitionDialog(QDialog):
             flag = flag_item.text().strip() if flag_item else ""
             if not name or not flag:
                 if name_item and not name:
-                    name_item.setBackground(QColor("#553333"))
+                    name_item.setBackground(QColor(_c("error_bg")))
                 if flag_item and not flag:
-                    flag_item.setBackground(QColor("#553333"))
+                    flag_item.setBackground(QColor(_c("error_bg")))
                 error_lines.append(f"Row {row + 1}: name and flag must not be empty")
                 continue
             # Clear any previous error highlight
@@ -7112,7 +7187,7 @@ class CascadeVariableDefinitionDialog(QDialog):
 
             # Flag format validation
             if not _CASCADE_VAR_FLAG_RE.match(flag):
-                flag_item.setBackground(QColor("#553333"))
+                flag_item.setBackground(QColor(_c("error_bg")))
                 error_lines.append(
                     f'Row {row + 1}: flag "{flag}" is not a valid flag or positional'
                 )
@@ -7141,7 +7216,7 @@ class CascadeVariableDefinitionDialog(QDialog):
                 for r in rows:
                     flag_item = self._table.item(r, 1)
                     if flag_item:
-                        flag_item.setBackground(QColor("#553333"))
+                        flag_item.setBackground(QColor(_c("error_bg")))
                 row_nums = " and ".join(str(r + 1) for r in rows)
                 error_lines.append(f'Duplicate flag "{flag}" on rows {row_nums}')
 
@@ -7298,7 +7373,7 @@ class CascadeCaptureDefinitionDialog(QDialog):
         if not pat_item or not grp_item:
             return
 
-        dim_bg = QColor("#333333") if _dark_mode else QColor("#e0e0e0")
+        dim_bg = QColor(_c("dim_bg"))
         clear_bg = QColor(0, 0, 0, 0)
 
         if source in ("stdout", "stderr"):
@@ -7348,7 +7423,7 @@ class CascadeCaptureDefinitionDialog(QDialog):
                 except ValueError:
                     error_rows.add(row)
                     if grp_item:
-                        grp_item.setBackground(QColor("#553333"))
+                        grp_item.setBackground(QColor(_c("error_bg")))
                     row_label = f'Row {row + 1} (name="{name}")' if name else f"Row {row + 1}"
                     error_lines.append(f"{row_label}: group must be an integer")
                     continue
@@ -7364,7 +7439,7 @@ class CascadeCaptureDefinitionDialog(QDialog):
             except ValueError as exc:
                 error_rows.add(row)
                 if name_item:
-                    name_item.setBackground(QColor("#553333"))
+                    name_item.setBackground(QColor(_c("error_bg")))
                 row_label = f'Row {row + 1} (name="{name}")' if name else f"Row {row + 1}"
                 error_lines.append(f"{row_label}: {exc}")
                 continue
@@ -7804,8 +7879,8 @@ class CascadeSidebar(QDockWidget):
         # _chain_btn_body is the single source for the padding literal; the
         # accented ON-state variants in _style_loop_btn/_style_stop_on_error_btn
         # reference it too.
-        _border = DARK_COLORS["border"] if _dark_mode else "#c0c0c0"
-        self._chain_btn_body = "padding: 2px 8px; border-radius: 3px;"
+        _border = _c("border")
+        self._chain_btn_body = "padding: 2px 8px; border-radius: 6px;"
         self._chain_qss = f"QPushButton {{ border: 1px solid {_border}; {self._chain_btn_body} }}"
         for _cbtn in (self.run_chain_btn, self.pause_chain_btn, self.stop_chain_btn,
                       self.loop_btn, self.stop_on_error_btn, self.clear_all_btn,
@@ -7912,16 +7987,14 @@ class CascadeSidebar(QDockWidget):
         arrow_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         arrow_btn.setToolTip("Change or clear this step")
         arrow_btn.clicked.connect(lambda checked=False, b=arrow_btn: self._on_slot_right_click(self._arrow_buttons.index(b)))
-        if _dark_mode:
-            arrow_btn.setStyleSheet(f"color: {DARK_COLORS['text_dim']}; padding: 0px;")
+        arrow_btn.setStyleSheet(f"color: {_c('text_dim')}; padding: 0px;")
 
         remove_btn = QPushButton("\u2212")
         remove_btn.setFixedWidth(24)
         remove_btn.setFixedHeight(28)
         remove_btn.setToolTip("Remove this step")
         remove_btn.clicked.connect(lambda checked=False, b=remove_btn: self._on_remove_slot(self._find_slot_by_remove_btn(b)))
-        if _dark_mode:
-            remove_btn.setStyleSheet(f"color: {DARK_COLORS['text_dim']}; padding: 0px;")
+        remove_btn.setStyleSheet(f"color: {_c('text_dim')}; padding: 0px;")
 
         row1.addWidget(num_label)
         row1.addWidget(main_btn, 1)
@@ -7932,7 +8005,7 @@ class CascadeSidebar(QDockWidget):
         # Row 2: delay label + spinner (centered)
         delay_row = QHBoxLayout()
         delay_row.addStretch()
-        dim_color = DARK_COLORS["text_dim"] if _dark_mode else "#666666"
+        dim_color = _c("text_dim")
         delay_label = QLabel("Delay")
         delay_label.setStyleSheet(f"font-size: 11px; color: {dim_color};")
         delay_row.addWidget(delay_label)
@@ -8053,7 +8126,7 @@ class CascadeSidebar(QDockWidget):
     def _style_loop_btn(self) -> None:
         """Update loop button appearance based on current state."""
         if self._loop_enabled:
-            color = DARK_COLORS["success"] if _dark_mode else "#4CAF50"
+            color = _c("success")
             self.loop_btn.setStyleSheet(f"QPushButton {{ border: 2px solid {color}; {self._chain_btn_body} }}")
             self.loop_btn.setText("Loop \u2713")
         else:
@@ -8069,7 +8142,7 @@ class CascadeSidebar(QDockWidget):
     def _style_stop_on_error_btn(self) -> None:
         """Update stop-on-error button appearance based on current state."""
         if self._stop_on_error:
-            color = DARK_COLORS["success"] if _dark_mode else "#4CAF50"
+            color = _c("success")
             self.stop_on_error_btn.setStyleSheet(f"QPushButton {{ border: 2px solid {color}; {self._chain_btn_body} }}")
             self.stop_on_error_btn.setText("Err\u2713")
         else:
@@ -8716,26 +8789,19 @@ class CascadeSidebar(QDockWidget):
                            remove_btn: QPushButton | None = None) -> None:
         """Apply theme-appropriate styling to a slot button, arrow, and remove."""
         if empty:
-            dim_color = DARK_COLORS["text_dim"] if _dark_mode else "gray"
+            dim_color = _c("text_dim")
             btn.setStyleSheet(f"color: {dim_color}; text-align: center;")
             if arrow_btn:
-                arrow_btn.setStyleSheet(f"color: {dim_color}; padding: 0px;" if _dark_mode else f"color: {dim_color};")
+                arrow_btn.setStyleSheet(f"color: {dim_color}; padding: 0px;")
             if remove_btn:
-                remove_btn.setStyleSheet(f"color: {dim_color}; padding: 0px;" if _dark_mode else f"color: {dim_color};")
+                remove_btn.setStyleSheet(f"color: {dim_color}; padding: 0px;")
         else:
-            if _dark_mode:
-                text_color = DARK_COLORS["text"]
-                btn.setStyleSheet(f"color: {text_color}; text-align: center;")
-                if arrow_btn:
-                    arrow_btn.setStyleSheet(f"color: {text_color}; padding: 0px;")
-                if remove_btn:
-                    remove_btn.setStyleSheet(f"color: {text_color}; padding: 0px;")
-            else:
-                btn.setStyleSheet("text-align: center;")
-                if arrow_btn:
-                    arrow_btn.setStyleSheet("")
-                if remove_btn:
-                    remove_btn.setStyleSheet("")
+            text_color = _c("text")
+            btn.setStyleSheet(f"color: {text_color}; text-align: center;")
+            if arrow_btn:
+                arrow_btn.setStyleSheet(f"color: {text_color}; padding: 0px;")
+            if remove_btn:
+                remove_btn.setStyleSheet(f"color: {text_color}; padding: 0px;")
 
     # ------------------------------------------------------------------
     # Slot interaction
@@ -9790,16 +9856,12 @@ class CascadeSidebar(QDockWidget):
     def _highlight_active_slot(self, index: int) -> None:
         """Highlight the currently executing slot button."""
         self._clear_slot_highlights()
-        color = DARK_COLORS["success"] if _dark_mode else "#4CAF50"
-        if _dark_mode:
-            text_color = DARK_COLORS["text"]
-            self._slot_buttons[index].setStyleSheet(
-                f"color: {text_color}; text-align: center; padding: 4px 12px; border: 2px solid {color};")
-            self._arrow_buttons[index].setStyleSheet(
-                f"color: {text_color}; padding: 0px; border: 2px solid {color};")
-        else:
-            self._slot_buttons[index].setStyleSheet(f"border: 2px solid {color};")
-            self._arrow_buttons[index].setStyleSheet(f"border: 2px solid {color};")
+        color = _c("success")
+        text_color = _c("text")
+        self._slot_buttons[index].setStyleSheet(
+            f"color: {text_color}; text-align: center; padding: 4px 12px; border: 2px solid {color};")
+        self._arrow_buttons[index].setStyleSheet(
+            f"color: {text_color}; padding: 0px; border: 2px solid {color};")
 
     def _clear_slot_highlights(self) -> None:
         """Remove highlighting from all slot buttons."""
@@ -9810,12 +9872,12 @@ class CascadeSidebar(QDockWidget):
         # Refresh chain QSS first so _style_loop_btn's OFF branch picks up the
         # current theme border; loop_btn/stop_on_error_btn are handled via
         # _style_*_btn, the remaining plain chain buttons below.
-        _border = DARK_COLORS["border"] if _dark_mode else "#c0c0c0"
+        _border = _c("border")
         self._chain_qss = f"QPushButton {{ border: 1px solid {_border}; {self._chain_btn_body} }}"
         self._refresh_button_labels()
         self._style_loop_btn()
         self._style_stop_on_error_btn()
-        dim_color = DARK_COLORS["text_dim"] if _dark_mode else "#666666"
+        dim_color = _c("text_dim")
         for info in self._slot_widgets:
             info["delay_label"].setStyleSheet(f"font-size: 11px; color: {dim_color};")
         for _cbtn in (self.run_chain_btn, self.pause_chain_btn, self.stop_chain_btn,
@@ -10225,11 +10287,6 @@ class MainWindow(QMainWindow):
         btn_layout.addWidget(close_btn)
         layout.addLayout(btn_layout)
 
-        if _dark_mode:
-            dlg.setStyleSheet(
-                f"QDialog {{ background-color: {DARK_COLORS['widget']}; color: {DARK_COLORS['text']}; }}"
-            )
-
         dlg.exec()
 
     def _on_show_cascade_guide(self) -> None:
@@ -10309,11 +10366,6 @@ class MainWindow(QMainWindow):
         btn_layout.addWidget(close_btn)
         layout.addLayout(btn_layout)
 
-        if _dark_mode:
-            dlg.setStyleSheet(
-                f"QDialog {{ background-color: {DARK_COLORS['widget']}; color: {DARK_COLORS['text']}; }}"
-            )
-
         dlg.exec()
 
     def _on_keyboard_shortcuts(self) -> None:
@@ -10352,24 +10404,10 @@ class MainWindow(QMainWindow):
         """Re-apply theme-sensitive inline stylesheets for output panel, preview bar, and warning bar."""
         # Output panel
         if hasattr(self, "output"):
-            if _dark_mode:
-                self.output.setStyleSheet(
-                    f"QPlainTextEdit {{ background-color: {DARK_COLORS['output_bg']};"
-                    f" color: {DARK_COLORS['output_text']}; }}"
-                )
-            else:
-                self.output.setStyleSheet(
-                    f"QPlainTextEdit {{ background-color: {OUTPUT_BG}; color: {OUTPUT_FG}; }}"
-                )
+            self._style_output()
         # Preview bar
         if hasattr(self, "preview"):
-            if _dark_mode:
-                self.preview.setStyleSheet(
-                    f"QTextEdit {{ background-color: {DARK_COLORS['widget']};"
-                    f" color: {DARK_COLORS['text']}; }}"
-                )
-            else:
-                self.preview.setStyleSheet("")
+            self._style_preview()
             # Re-color preview with new theme colors
             if hasattr(self, "form") and self.form:
                 self._update_preview()
@@ -10407,7 +10445,7 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _style_section_label(label: QLabel) -> None:
         """Apply theme-appropriate styling to a section header label."""
-        color = DARK_COLORS["text_dim"] if _dark_mode else "#666666"
+        color = _c("text_dim")
         label.setStyleSheet(
             "font-weight: bold; font-size: 11px; text-transform: uppercase;"
             f" letter-spacing: 1px; padding: 2px 0 1px 0; color: {color};"
@@ -10417,91 +10455,61 @@ class MainWindow(QMainWindow):
     def _style_form_frame(self) -> None:
         """Apply theme-appropriate border styling to the command options frame."""
         self.form_frame.setObjectName("form_frame")
-        if _dark_mode:
-            self.form_frame.setStyleSheet(
-                f"QFrame#form_frame {{ border: 1px solid {DARK_COLORS['border']};"
-                f" border-radius: 4px; background-color: {DARK_COLORS['window']}; }}"
-            )
-        else:
-            self.form_frame.setStyleSheet(
-                "QFrame#form_frame { border: 1px solid #999999;"
-                " border-radius: 4px; }"
-            )
+        self.form_frame.setStyleSheet(
+            f"QFrame#form_frame {{ border: 1px solid {_c('border')};"
+            f" border-radius: 8px; background-color: {_c('widget')}; }}"
+        )
+
+    def _style_output(self) -> None:
+        """Apply the output panel's terminal colors (dark in both themes)."""
+        self.output.setStyleSheet(
+            f"QPlainTextEdit {{ background-color: {_c('output_bg')};"
+            f" color: {_c('output_text')}; border-color: {_c('output_bg')}; padding: 6px; }}"
+        )
+
+    def _style_preview(self) -> None:
+        """Apply the command preview's colors."""
+        self.preview.setStyleSheet(
+            f"QTextEdit {{ background-color: {_c('input')}; color: {_c('text')}; }}"
+        )
 
     def _style_run_btn(self) -> None:
         """Apply green (Run), red (Stop), or amber (Stopping...) styling to the run button."""
         text = self.run_btn.text()
-        if _dark_mode:
-            if text == "Stop":
-                self.run_btn.setStyleSheet(
-                    f"QPushButton {{ background-color: #45272a; color: {DARK_COLORS['error']};"
-                    f" border: 1px solid {DARK_COLORS['error']}; padding: 4px 16px;"
-                    f" font-weight: bold; border-radius: 3px; }} "
-                    f"QPushButton:hover {{ background-color: #5a3035; }}"
-                )
-            elif text == "Stopping...":
-                self.run_btn.setStyleSheet(
-                    f"QPushButton {{ background-color: #3a3020; color: {COLOR_WARN};"
-                    f" border: 1px solid {COLOR_WARN}; padding: 4px 16px;"
-                    f" font-style: italic; border-radius: 3px; }} "
-                    f"QPushButton:disabled {{ background-color: #3a3020; color: {COLOR_WARN};"
-                    f" border: 1px solid {COLOR_WARN}; padding: 4px 16px;"
-                    f" font-style: italic; border-radius: 3px; }}"
-                )
-            else:
-                self.run_btn.setStyleSheet(
-                    f"QPushButton {{ background-color: #1e3a2a; color: {DARK_COLORS['success']};"
-                    f" border: 1px solid {DARK_COLORS['success']}; padding: 4px 16px;"
-                    f" font-weight: bold; border-radius: 3px; }} "
-                    f"QPushButton:hover {{ background-color: #274d36; }}"
-                )
+        base = "padding: 5px 18px; border-radius: 6px;"
+        if text == "Stop":
+            self.run_btn.setStyleSheet(
+                f"QPushButton {{ background-color: {_c('error_bg')}; color: {_c('error')};"
+                f" border: 1px solid {_c('error')}; font-weight: bold; {base} }} "
+                f"QPushButton:hover {{ background-color: {_c('error_bg_hover')}; }}"
+            )
+        elif text == "Stopping...":
+            self.run_btn.setStyleSheet(
+                f"QPushButton, QPushButton:disabled {{ background-color: {_c('warning_bg')};"
+                f" color: {_c('warning_text')}; border: 1px solid {_c('warning_border')};"
+                f" font-style: italic; {base} }}"
+            )
         else:
-            if text == "Stop":
-                self.run_btn.setStyleSheet(
-                    "QPushButton { background-color: #fdecea; color: #c62828;"
-                    " border: 1px solid #ef9a9a; padding: 4px 16px;"
-                    " font-weight: bold; border-radius: 3px; } "
-                    "QPushButton:hover { background-color: #f9d0cd; }"
-                )
-            elif text == "Stopping...":
-                self.run_btn.setStyleSheet(
-                    f"QPushButton {{ background-color: #fdf5e6; color: #b8860b;"
-                    f" border: 1px solid {COLOR_WARN}; padding: 4px 16px;"
-                    f" font-style: italic; border-radius: 3px; }} "
-                    f"QPushButton:disabled {{ background-color: #fdf5e6; color: #b8860b;"
-                    f" border: 1px solid {COLOR_WARN}; padding: 4px 16px;"
-                    f" font-style: italic; border-radius: 3px; }}"
-                )
-            else:
-                self.run_btn.setStyleSheet(
-                    "QPushButton { background-color: #e8f5e9; color: #2e7d32;"
-                    " border: 1px solid #a5d6a7; padding: 4px 16px;"
-                    " font-weight: bold; border-radius: 3px; } "
-                    "QPushButton:hover { background-color: #c8e6c9; }"
-                )
+            self.run_btn.setStyleSheet(
+                f"QPushButton {{ background-color: {_c('success_bg')}; color: #ffffff;"
+                f" border: 1px solid {_c('success_bg')}; font-weight: bold; {base} }} "
+                f"QPushButton:hover {{ background-color: {_c('success_bg_hover')}; }} "
+                f"QPushButton:disabled {{ background-color: {_c('dim_bg')}; color: {_c('disabled')};"
+                f" border-color: {_c('border')}; }}"
+            )
 
     def _style_warning_bar(self) -> None:
         """Apply theme-appropriate styling to the binary-not-found warning bar."""
-        if _dark_mode:
-            self.warning_bar.setStyleSheet(
-                f"background-color: {DARK_COLORS['warning_bg']};"
-                f" color: {DARK_COLORS['warning_text']};"
-                f" padding: 6px 12px;"
-                f" border: 1px solid {DARK_COLORS['warning_border']};"
-                " border-radius: 4px;"
-                " font-weight: bold;"
-            )
-        else:
-            self.warning_bar.setStyleSheet(
-                f"background-color: {LIGHT_WARNING_BG}; color: {LIGHT_WARNING_FG};"
-                f" padding: 6px 12px; border: 1px solid {LIGHT_WARNING_BORDER};"
-                " border-radius: 4px;"
-                " font-weight: bold;"
-            )
+        self.warning_bar.setStyleSheet(
+            f"background-color: {_c('warning_bg')}; color: {_c('warning_text')};"
+            f" padding: 6px 12px; border: 1px solid {_c('warning_border')};"
+            " border-radius: 6px;"
+            " font-weight: bold;"
+        )
 
     def _set_warning_bar_text(self, binary: str) -> None:
         """Set warning bar rich text with a clickable link to the custom PATH dialog."""
-        link_color = DARK_COLORS["accent"] if _dark_mode else "#0550ae"
+        link_color = _c("accent")
         escaped = html.escape(binary)
         self.warning_bar.setText(
             f"Warning: '{escaped}' not found in PATH &mdash; "
@@ -11220,11 +11228,7 @@ class MainWindow(QMainWindow):
         line_height = self.preview.fontMetrics().lineSpacing()
         scrollbar_height = QApplication.style().pixelMetric(QApplication.style().PixelMetric.PM_ScrollBarExtent)
         self.preview.setFixedHeight(line_height + scrollbar_height + 12)
-        if _dark_mode:
-            self.preview.setStyleSheet(
-                f"QTextEdit {{ background-color: {DARK_COLORS['widget']};"
-                f" color: {DARK_COLORS['text']}; }}"
-            )
+        self._style_preview()
         self.preview.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.preview.customContextMenuRequested.connect(self._on_preview_context_menu)
         preview_bar.addWidget(self.preview, 1)
@@ -11366,15 +11370,7 @@ class MainWindow(QMainWindow):
         # Drag handle to resize output panel
         self.output_handle = DragHandle(self.output, self.settings)
         layout.addWidget(self.output_handle)
-        if _dark_mode:
-            self.output.setStyleSheet(
-                f"QPlainTextEdit {{ background-color: {DARK_COLORS['output_bg']};"
-                f" color: {DARK_COLORS['output_text']}; }}"
-            )
-        else:
-            self.output.setStyleSheet(
-                f"QPlainTextEdit {{ background-color: {OUTPUT_BG}; color: {OUTPUT_FG}; }}"
-            )
+        self._style_output()
         layout.addWidget(self.output)
 
         # Restore preserved output from previous chain step
@@ -11779,7 +11775,7 @@ class MainWindow(QMainWindow):
             self._clear_recovery_file()
             QTimer.singleShot(0, lambda: self._show_status(
                 "Reset to defaults",
-                DARK_COLORS["success"] if _dark_mode else "green",
+                _c("success"),
             ))
 
     # ------------------------------------------------------------------
@@ -11808,7 +11804,7 @@ class MainWindow(QMainWindow):
                 field = self.form.fields.get(key)
                 if field:
                     names.append(field["arg"]["name"])
-            color = DARK_COLORS["error"] if _dark_mode else "red"
+            color = _c("error")
             self.status.setText(f"Required: {', '.join(names)}")
             self.status.setStyleSheet(f"color: {color}; padding: 0 8px 4px 8px;")
             # Do NOT start _status_timer — this message must persist until fields are filled
@@ -11882,7 +11878,7 @@ class MainWindow(QMainWindow):
         formatter, _ = _COPY_FORMATS.get(self._copy_format, (_format_display, "Command"))
         text = formatter(cmd)
         QApplication.clipboard().setText(text)
-        color = DARK_COLORS["success"] if _dark_mode else "green"
+        color = _c("success")
         self._show_status("Copied to clipboard." + _pw_copy_suffix(pw_state), color)
 
     def _set_copy_format(self, fmt: str) -> None:
@@ -11922,7 +11918,7 @@ class MainWindow(QMainWindow):
             return
         text = formatter(cmd)
         QApplication.clipboard().setText(text)
-        color = DARK_COLORS["success"] if _dark_mode else "green"
+        color = _c("success")
         self._show_status(f"Copied as {label}." + _pw_copy_suffix(pw_state), color)
 
     def _copy_as_bash(self) -> None:
@@ -11941,13 +11937,13 @@ class MainWindow(QMainWindow):
             self._show_status("No output to copy")
             return
         QApplication.clipboard().setText(text)
-        color = DARK_COLORS["success"] if _dark_mode else "green"
+        color = _c("success")
         self._show_status("Output copied to clipboard.", color)
 
     def _show_status(self, text: str, color: str | None = None) -> None:
         """Display a colored message in the status label below the command preview."""
         if color is None:
-            color = DARK_COLORS["error"] if _dark_mode else "red"
+            color = _c("error")
         self.status.setText(text)
         self.status.setStyleSheet(f"color: {color}; padding: 0 8px 4px 8px;")
         self._status_timer.start(3000)
@@ -12051,7 +12047,7 @@ class MainWindow(QMainWindow):
         if not self.form.extra_flags_valid():
             self._show_status(
                 "Fix extra flags before running \u2014 unmatched quotes detected",
-                DARK_COLORS["error"] if _dark_mode else "red",
+                _c("error"),
             )
             return
 
@@ -12436,7 +12432,7 @@ class MainWindow(QMainWindow):
             if had_pw:
                 self._show_status(
                     "Form restored — password fields must be re-entered.",
-                    DARK_COLORS["success"] if _dark_mode else "green",
+                    _c("success"),
                 )
             else:
                 self._show_status("Form restored from history")
