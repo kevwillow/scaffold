@@ -151,7 +151,7 @@ check(scaffold.DARK_COLORS['output_bg'] in output_style,
 
 # Verify preview has dark styling
 preview_style = win.preview.styleSheet()
-check(scaffold.DARK_COLORS['widget'] in preview_style,
+check(scaffold.DARK_COLORS['input'] in preview_style,
       "preview bar has dark styling")
 
 # Toggle back to light

@@ -27,7 +27,7 @@ from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit
 
 app = QApplication.instance() or QApplication(sys.argv)
 
-from scaffold import load_tool, validate_tool, normalize_tool, ToolForm, MainWindow
+from scaffold import load_tool, validate_tool, normalize_tool, ToolForm, MainWindow, _c
 
 PASSED = 0
 FAILED = 0
@@ -258,19 +258,19 @@ check(format_w.isEditable(), "format field is editable")
 # Valid value
 format_w.setCurrentText("mp4")
 style = format_w.lineEdit().styleSheet()
-check("red" not in style, "valid value: no red border",
+check(_c("required") not in style, "valid value: no red border",
       f"style='{style}'")
 
 # Invalid value
 format_w.setCurrentText("MP4!!!")
 style = format_w.lineEdit().styleSheet()
-check("red" in style, "invalid value: red border shown",
+check(_c("required") in style, "invalid value: red border shown",
       f"style='{style}'")
 
 # Clear -> no red
 format_w.setCurrentText("")
 style = format_w.lineEdit().styleSheet()
-check("red" not in style, "empty value: no red border")
+check(_c("required") not in style, "empty value: no red border")
 
 # =====================================================================
 print("\n=== TEST 12: Dependency with examples field ===")

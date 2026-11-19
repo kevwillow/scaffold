@@ -4652,7 +4652,7 @@ check(_s39_w.run_btn.text() == "Stopping...", "39d: button shows Stopping...")
 check(not _s39_w.run_btn.isEnabled(), "39d: button disabled while stopping")
 _s39_style = _s39_w.run_btn.styleSheet()
 check("italic" in _s39_style, "39d: Stopping... button has italic style")
-check("#e8a838" in _s39_style or "#b8860b" in _s39_style, "39d: Stopping... button uses warning color")
+check(scaffold._c("warning_text") in _s39_style, "39d: Stopping... button uses warning color")
 
 if _s39_proc is not None:
     _s39_proc.waitForFinished(10000)
@@ -8331,16 +8331,16 @@ _s69_f1 = _s69_w1.form
 _s69_k1 = (_s69_f1.GLOBAL, "--force")
 _s69_lbl1 = _s69_f1.fields[_s69_k1]["label"]
 
-# 69a: Dark mode — dangerous label uses dark-mode color (#f38ba8)
-check("#f38ba8" in _s69_lbl1.text(),
+# 69a: Dark mode — dangerous label uses the dark required color
+check(scaffold.DARK_COLORS["required"] in _s69_lbl1.text(),
       f"69a: dangerous label has dark-mode color in dark theme: {_s69_lbl1.text()}")
 
-# 69b: Toggle to light mode — dangerous label updates to "red"
+# 69b: Toggle to light mode — dangerous label updates to the light required color
 scaffold.apply_theme(False)
 app.processEvents()
 _s69_f1.update_theme()
 app.processEvents()
-check("red" in _s69_lbl1.text() and "#f38ba8" not in _s69_lbl1.text(),
+check(scaffold.LIGHT_COLORS["required"] in _s69_lbl1.text() and scaffold.DARK_COLORS["required"] not in _s69_lbl1.text(),
       f"69b: dangerous label updated to light-mode color after toggle: {_s69_lbl1.text()}")
 
 _s69_w1.close(); _s69_w1.deleteLater(); app.processEvents()
@@ -8371,16 +8371,16 @@ _s69_f2 = _s69_w2.form
 _s69_k2 = (_s69_f2.GLOBAL, "--old")
 _s69_lbl2 = _s69_f2.fields[_s69_k2]["label"]
 
-# 69c: Dark mode — deprecated label uses dark warning_text color (#fab387)
-check("#fab387" in _s69_lbl2.text(),
+# 69c: Dark mode — deprecated label uses the dark warning_text color
+check(scaffold.DARK_COLORS["warning_text"] in _s69_lbl2.text(),
       f"69c: deprecated label has dark-mode color in dark theme: {_s69_lbl2.text()}")
 
-# 69d: Toggle to light mode — deprecated label updates to #856404
+# 69d: Toggle to light mode — deprecated label updates to the light warning_text color
 scaffold.apply_theme(False)
 app.processEvents()
 _s69_f2.update_theme()
 app.processEvents()
-check("#856404" in _s69_lbl2.text() and "#fab387" not in _s69_lbl2.text(),
+check(scaffold.LIGHT_COLORS["warning_text"] in _s69_lbl2.text() and scaffold.DARK_COLORS["warning_text"] not in _s69_lbl2.text(),
       f"69d: deprecated label updated to light-mode color after toggle: {_s69_lbl2.text()}")
 
 _s69_w2.close(); _s69_w2.deleteLater(); app.processEvents()
@@ -10096,10 +10096,10 @@ app.processEvents()
 _s86_pal = app.palette()
 _s86_ttbase = _s86_pal.color(QPalette.ColorRole.ToolTipBase).name()
 _s86_tttext = _s86_pal.color(QPalette.ColorRole.ToolTipText).name()
-check(_s86_ttbase == "#f5f5f5",
-      f"86d: light-mode ToolTipBase is #f5f5f5 (got {_s86_ttbase})")
-check(_s86_tttext == "#1a1a1a",
-      f"86d: light-mode ToolTipText is #1a1a1a (got {_s86_tttext})")
+check(_s86_ttbase == scaffold.LIGHT_COLORS["widget"],
+      f"86d: light-mode ToolTipBase is the light widget color (got {_s86_ttbase})")
+check(_s86_tttext == scaffold.LIGHT_COLORS["text"],
+      f"86d: light-mode ToolTipText is the light text color (got {_s86_tttext})")
 check("QToolTip" in app.styleSheet(),
       "86d: light-mode stylesheet contains QToolTip rule")
 
@@ -14931,15 +14931,15 @@ check(len(_s130_dlg._result_captures) == 0,
 # Check invalid rows have red highlights
 _s130_name1 = _s130_dlg._table.item(1, 0)  # bad name! row
 _s130_name2 = _s130_dlg._table.item(2, 0)  # no_pat row
-check(_s130_name1 is not None and _s130_name1.background().color().name() == "#553333",
+check(_s130_name1 is not None and _s130_name1.background().color().name() == scaffold._c("error_bg"),
       "130a: bad-name row has red highlight on name cell")
 
 # Check valid row's cells are NOT red-highlighted
 _s130_name0 = _s130_dlg._table.item(0, 0)  # valid row
 _s130_grp0 = _s130_dlg._table.item(0, 3)   # valid row group
-check(_s130_name0 is not None and _s130_name0.background().color().name() != "#553333",
+check(_s130_name0 is not None and _s130_name0.background().color().name() != scaffold._c("error_bg"),
       "130a: valid row name cell is not red-highlighted")
-check(_s130_grp0 is not None and _s130_grp0.background().color().name() != "#553333",
+check(_s130_grp0 is not None and _s130_grp0.background().color().name() != scaffold._c("error_bg"),
       "130a: valid row group cell is not red-highlighted")
 
 # 130b: Group must be integer error included in combined message
@@ -14992,7 +14992,7 @@ _s130_dlg4._on_accept()
 app.processEvents()
 
 # Manually set valid row's name cell to red (simulating leftover from prior attempt)
-_s130_dlg4._table.item(0, 0).setBackground(QColor("#553333"))
+_s130_dlg4._table.item(0, 0).setBackground(QColor(scaffold._c("error_bg")))
 
 # Fix row 2 name, re-validate
 _s130_dlg4._table.item(1, 0).setText("fixed_name")
@@ -15003,7 +15003,7 @@ app.processEvents()
 check(len(_s130_warnings) == 0,
       "130d: no warnings after fixing invalid row")
 _s130_name0d = _s130_dlg4._table.item(0, 0)
-check(_s130_name0d.background().color().name() != "#553333",
+check(_s130_name0d.background().color().name() != scaffold._c("error_bg"),
       "130d: previously-highlighted valid row's highlight cleared")
 check(len(_s130_dlg4._result_captures) == 2,
       f"130d: both captures accepted, got {len(_s130_dlg4._result_captures)}")
@@ -15059,13 +15059,13 @@ _s131_flag0 = _s131_dlg._table.item(0, 1)  # --port row 1
 _s131_flag1 = _s131_dlg._table.item(1, 1)  # --host row 2
 _s131_flag2 = _s131_dlg._table.item(2, 1)  # --port row 3
 _s131_flag3 = _s131_dlg._table.item(3, 1)  # --output row 4
-check(_s131_flag0.background().color().name() == "#553333",
+check(_s131_flag0.background().color().name() == scaffold._c("error_bg"),
       "131a: row 1 flag cell is red (duplicate)")
-check(_s131_flag1.background().color().name() != "#553333",
+check(_s131_flag1.background().color().name() != scaffold._c("error_bg"),
       "131a: row 2 flag cell is NOT red (unique)")
-check(_s131_flag2.background().color().name() == "#553333",
+check(_s131_flag2.background().color().name() == scaffold._c("error_bg"),
       "131a: row 3 flag cell is red (duplicate)")
-check(_s131_flag3.background().color().name() != "#553333",
+check(_s131_flag3.background().color().name() != scaffold._c("error_bg"),
       "131a: row 4 flag cell is NOT red (unique)")
 
 # 131b: Three-way duplicate (rows 1, 2, 3 all --foo)
@@ -15105,9 +15105,9 @@ check(len(_s131_dlg._result_variables) == 4,
 # All flag cells should be clear now
 _s131_flag0c = _s131_dlg._table.item(0, 1)
 _s131_flag2c = _s131_dlg._table.item(2, 1)
-check(_s131_flag0c.background().color().name() != "#553333",
+check(_s131_flag0c.background().color().name() != scaffold._c("error_bg"),
       "131c: row 1 flag highlight cleared after fix")
-check(_s131_flag2c.background().color().name() != "#553333",
+check(_s131_flag2c.background().color().name() != scaffold._c("error_bg"),
       "131c: row 3 flag highlight cleared after fix")
 
 # Restore QMessageBox.warning
@@ -15185,7 +15185,7 @@ for _s132_flag in _s132_invalid_flags:
           f"132c: flag '{_s132_flag}' → dialog did not accept")
     # Check flag cell is red
     _s132_fi = _s132_idlg._table.item(0, 1)
-    check(_s132_fi is not None and _s132_fi.background().color().name() == "#553333",
+    check(_s132_fi is not None and _s132_fi.background().color().name() == scaffold._c("error_bg"),
           f"132c: flag '{_s132_flag}' → flag cell highlighted red")
     _s132_idlg.deleteLater()
 
@@ -15732,17 +15732,23 @@ _s138_orig_question = QMessageBox.question
 QFileDialog.getOpenFileName = staticmethod(lambda *a, **kw: (str(_s138_src), ""))
 QMessageBox.question = staticmethod(lambda *a, **kw: QMessageBox.StandardButton.Yes)
 
-# Patch Path.write_text to simulate mid-write failure (truncate + partial write)
-_s138_orig_write_text = Path.write_text
+# Patch os.fdopen (what _atomic_write_json writes through) to simulate a
+# mid-write failure: write part of the content, then raise.
+_s138_orig_fdopen = os.fdopen
 
-def _s138_failing_write(path_self, content, *args, **kwargs):
-    """Simulate mid-write crash: open in write mode (truncating), write partial, raise."""
-    enc = kwargs.get("encoding", "utf-8")
-    with open(str(path_self), "w", encoding=enc) as f:
-        f.write(content[:10])
-    raise OSError("Simulated disk-full mid-write failure")
+class _S138FailingFile:
+    def __init__(self, f):
+        self._f = f
+    def __enter__(self):
+        return self
+    def __exit__(self, *exc):
+        self._f.close()
+        return False
+    def write(self, content):
+        self._f.write(content[:10])
+        raise OSError("Simulated disk-full mid-write failure")
 
-Path.write_text = _s138_failing_write
+os.fdopen = lambda fd, *a, **kw: _S138FailingFile(_s138_orig_fdopen(fd, *a, **kw))
 
 # Invoke the import — this should fail but dest must stay intact (atomic) or be original
 try:
@@ -15752,7 +15758,7 @@ except Exception:
     pass  # Any exception is fine; we only care about dest state
 
 # Restore patches immediately
-Path.write_text = _s138_orig_write_text
+os.fdopen = _s138_orig_fdopen
 QFileDialog.getOpenFileName = _s138_orig_getopen
 QMessageBox.question = _s138_orig_question
 
@@ -23303,6 +23309,38 @@ if len(_s179_t17d_argvs) >= 2:
           f"(got {_s179_t17d_argvs[1]!r})")
 else:
     check(False, "T17d: step-2 argv substitution check skipped — fewer than 2 argvs")
+
+
+# ---------------------------------------------------------------
+# T18 — a capture can't break out of quotes in extra flags (S1)
+# ---------------------------------------------------------------
+# The value 'a" --evil "b' is one shlex token on its own, so the
+# value-level check above passes it. Pasted into --name "{v}" it closes
+# the quote and adds --evil as a separate argv element.
+print("\n--- T18: quote breakout in extra flags halts ---")
+
+_s179_t18_argvs, _s179_t18_finish, _s179_t18_status, _s179_t18_state = _s179_run_cascade_capture_argv(
+    step1_captures=[{"name": "v", "source": "stdout", "pattern": r"(READY)", "group": 1}],
+    fake_extract_result={"v": 'a" --evil "b'},
+    step2_extra_flags='--name "{v}"',
+    stop_on_error=False,
+)
+check(_s179_t18_finish == "error_halted",
+      f"T18a: quote breakout halts the cascade (got {_s179_t18_finish!r})")
+check(len(_s179_t18_argvs) == 1,
+      f"T18a: step 2 never ran (got {len(_s179_t18_argvs)} argvs)")
+check(not any("--evil" in a for a in _s179_t18_argvs),
+      f"T18a: injected flag never reached an argv (got {_s179_t18_argvs!r})")
+
+# T18b — the same quoted placement with a plain value still works
+_s179_t18b_argvs, _s179_t18b_finish, _s179_t18b_status, _s179_t18b_state = _s179_run_cascade_capture_argv(
+    step1_captures=[{"name": "v", "source": "stdout", "pattern": r"(READY)", "group": 1}],
+    fake_extract_result={"v": "hello"},
+    step2_extra_flags='--name "{v}"',
+    stop_on_error=False,
+)
+check(len(_s179_t18b_argvs) >= 2 and "hello" in _s179_t18b_argvs[1],
+      f"T18b: quoted capture with a plain value substitutes (got {_s179_t18b_argvs!r})")
 
 
 # Cleanup section 179
@@ -31969,6 +32007,256 @@ finally:
     scaffold.CascadeHeadlessRunner._snapshot_settings = _s220_saved_snap
 check(_s220_order[:2] == ["data root", "snapshot"],
       f"220s: headless run resolves the data folder before its settings snapshot (got {_s220_order})")
+
+# =====================================================================
+# Section 221
+# =====================================================================
+print("\n--- Section 221: Form labels show the real CLI flag ---")
+
+_s221_tool = scaffold.normalize_tool({
+    "tool": "t221", "binary": "t221", "description": "",
+    "arguments": [
+        {"name": "Ports", "flag": "--ports", "short_flag": "-p", "type": "string"},
+        {"name": "Odd <b>name</b>", "flag": "--x<y>", "type": "boolean"},
+        {"name": "Target", "flag": "TARGET", "type": "string", "positional": True, "required": True},
+    ],
+})
+_s221_saved_dark = scaffold._dark_mode
+scaffold.apply_theme(False)
+_s221_form = scaffold.ToolForm(_s221_tool)
+_s221_G = _s221_form.GLOBAL
+_s221_ports = _s221_form.fields[(_s221_G, "--ports")]["label"].text()
+_s221_odd = _s221_form.fields[(_s221_G, "--x<y>")]["label"].text()
+_s221_target = _s221_form.fields[(_s221_G, "TARGET")]["label"].text()
+
+check("-p, --ports" in _s221_ports, f"221a: label shows short and long flag ({_s221_ports!r})")
+check("--x&lt;y&gt;" in _s221_odd and "<b>name</b>" not in _s221_odd,
+      f"221b: flag and name are HTML-escaped ({_s221_odd!r})")
+check("TARGET" not in _s221_target and "<br>" not in _s221_target,
+      f"221c: positional placeholder is not shown as a flag ({_s221_target!r})")
+check(scaffold.LIGHT_COLORS["text_dim"] in _s221_ports,
+      "221d: flag line uses the light dim color in light mode")
+
+scaffold.apply_theme(True)
+_s221_form.update_theme()
+_s221_ports_dark = _s221_form.fields[(_s221_G, "--ports")]["label"].text()
+check(scaffold.DARK_COLORS["text_dim"] in _s221_ports_dark
+      and scaffold.LIGHT_COLORS["text_dim"] not in _s221_ports_dark,
+      "221e: flag line follows a theme toggle")
+
+scaffold.apply_theme(_s221_saved_dark)
+_s221_form.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 222
+# =====================================================================
+print("\n--- Section 222: Output header shows the last run's result ---")
+
+_s222_saved_dark = scaffold._dark_mode
+scaffold.apply_theme(False)
+_s222_win = scaffold.MainWindow(tool_path=str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json"))
+app.processEvents()
+check(not _s222_win.output_summary.isVisibleTo(_s222_win), "222a: summary hidden before any run")
+
+
+class _S222FakeProc:
+    def readAllStandardOutput(self):
+        return b"one\ntwo\n"
+
+    def readAllStandardError(self):
+        return b"warn\n"
+
+
+_s222_win._run_line_count = 0
+_s222_win.process = _S222FakeProc()
+_s222_win._on_stdout_ready()
+_s222_win._on_stderr_ready()
+_s222_win.process = None
+check(_s222_win._run_line_count == 3, f"222b: stdout and stderr lines are counted (got {_s222_win._run_line_count})")
+
+_s222_win._run_start_time = time.monotonic() - 1.5
+_s222_win._on_finished(0, QProcess.ExitStatus.NormalExit)
+_s222_text = _s222_win.output_summary.text()
+check(_s222_win.output_summary.isVisibleTo(_s222_win), "222c: summary shown after a run")
+check("exit 0" in _s222_text and "3 lines" in _s222_text and "1.5s" in _s222_text,
+      f"222d: summary has exit code, run time and line count ({_s222_text!r})")
+check(scaffold.LIGHT_COLORS["success_tint"] in _s222_text, "222e: exit 0 uses the success pill")
+
+_s222_win._run_line_count = 1
+_s222_win._on_finished(2, QProcess.ExitStatus.NormalExit)
+_s222_text = _s222_win.output_summary.text()
+check("exit 2" in _s222_text and "1 line<" in _s222_text and scaffold.LIGHT_COLORS["error_bg"] in _s222_text,
+      f"222f: non-zero exit uses the error pill and singular 'line' ({_s222_text!r})")
+
+scaffold.apply_theme(True)
+_s222_win._apply_widget_theme()
+_s222_text = _s222_win.output_summary.text()
+check(scaffold.DARK_COLORS["error_bg"] in _s222_text and scaffold.LIGHT_COLORS["error_bg"] not in _s222_text,
+      "222g: summary follows a theme toggle")
+
+_s222_win._clear_output()
+check(not _s222_win.output_summary.isVisibleTo(_s222_win), "222h: Clear Output hides the summary")
+
+# 222i: rebuilding the form view must not leave the old Output header behind
+# (a nested layout in the form container was dropped without its widgets)
+from PySide6.QtCore import QEvent as _S222QEvent
+_s222_win._load_tool_path(_s222_win.tool_path)
+app.processEvents()
+QApplication.sendPostedEvents(None, _S222QEvent.Type.DeferredDelete)
+app.processEvents()
+_s222_headers = [w for w in _s222_win.findChildren(QLabel) if w.text() == "Output"]
+check(len(_s222_headers) == 1,
+      f"222i: exactly one Output header after a rebuild (got {len(_s222_headers)})")
+
+scaffold.apply_theme(_s222_saved_dark)
+_s222_win.close()
+_s222_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 223
+# =====================================================================
+print("\n--- Section 223: Per-run capture streams keep only the tail (L1) ---")
+
+# extract_captures reads only the last CAPTURE_STREAM_TAIL_BYTES of each
+# stream, but the whole stream used to be kept for every run.
+_s223_win = scaffold.MainWindow(tool_path=str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json"))
+_s223_chunk = "x" * 8191 + "\n"
+
+
+class _S223FakeProc:
+    def __init__(self):
+        self.n = 0
+
+    def readAllStandardOutput(self):
+        self.n += 1
+        return (_s223_chunk[:-1] + str(self.n % 10) + "\n").encode()
+
+    def readAllStandardError(self):
+        return b"e" * 8192
+
+
+_s223_win._last_run_stdout = ""
+_s223_win._last_run_stderr = ""
+_s223_win.process = _S223FakeProc()
+for _ in range(40):  # 320 KB per stream
+    _s223_win._on_stdout_ready()
+    _s223_win._on_stderr_ready()
+_s223_last = _s223_win.process.n
+_s223_win.process = None
+_s223_limit = scaffold.CAPTURE_STREAM_TAIL_BYTES
+check(len(_s223_win._last_run_stdout) <= _s223_limit,
+      f"223a: stdout kept to the capture tail ({len(_s223_win._last_run_stdout)} <= {_s223_limit})")
+check(len(_s223_win._last_run_stderr) <= _s223_limit,
+      f"223b: stderr kept to the capture tail ({len(_s223_win._last_run_stderr)} <= {_s223_limit})")
+check(_s223_win._last_run_stdout.endswith(str(_s223_last % 10) + "\n")
+      and len(_s223_win._last_run_stdout) == _s223_limit,
+      "223c: the newest output is kept, filling the whole tail")
+_s223_win._output_buffer.clear()
+_s223_win.close()
+_s223_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
+# Section 224
+# =====================================================================
+print("\n--- Section 224: Additional Flags keep Windows backslashes (C1) ---")
+
+# POSIX shlex treats a backslash as an escape, so on Windows
+# "--out C:\\temp\\x.txt" became ["--out", "C:tempx.txt"].
+_s224_split = getattr(scaffold, "_split_extra_flags", None)
+check(callable(_s224_split), "224a: scaffold._split_extra_flags exists")
+if callable(_s224_split):
+    check(_s224_split(r"--out C:\temp\x.txt", windows=True) == ["--out", r"C:\temp\x.txt"],
+          "224b: Windows keeps backslashes in paths")
+    check(_s224_split(r'--name "C:\Program Files\x" -v', windows=True) == ["--name", r"C:\Program Files\x", "-v"],
+          "224c: Windows still groups quoted text and drops the quotes")
+    check(_s224_split("--k='a b'", windows=True) == ["--k=a b"],
+          "224d: Windows handles quotes inside a token")
+    check(_s224_split(r"a\ b", windows=False) == ["a b"],
+          "224e: POSIX keeps backslash-escape behavior")
+    _s224_raised = False
+    try:
+        _s224_split('--x "open', windows=True)
+    except ValueError:
+        _s224_raised = True
+    check(_s224_raised, "224f: unmatched quotes still raise ValueError on Windows")
+
+if sys.platform == "win32":
+    _s224_form = scaffold.ToolForm(scaffold.normalize_tool({
+        "tool": "t224", "binary": "t224", "description": "",
+        "arguments": [{"name": "V", "flag": "--v", "type": "boolean"}],
+    }))
+    _s224_form.extra_flags_group.setChecked(True)
+    _s224_form.extra_flags_edit.setPlainText(r"--out C:\temp\x.txt")
+    check(_s224_form.get_extra_flags() == ["--out", r"C:\temp\x.txt"],
+          f"224g: the form passes Windows paths through intact (got {_s224_form.get_extra_flags()!r})")
+    _s224_form.deleteLater()
+    app.processEvents()
+
+
+# =====================================================================
+# Section 225
+# =====================================================================
+print("\n--- Section 225: Recovery files are validated and privately owned (S3) ---")
+
+# Recovery files live in the temp dir, which is shared between users on
+# Linux. Their contents were applied without the preset validator, and
+# the atomic write went through a fixed, guessable <name>.tmp path.
+
+_s225_win = scaffold.MainWindow(tool_path=str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json"))
+app.processEvents()
+_s225_path = _s225_win._recovery_file_path()
+
+# 225a: a recovery file with a wrong-typed value is rejected, not applied
+_s225_path.write_text(json.dumps({
+    "_format": "scaffold_preset", "_tool": "ping", "_extra_flags": 5,
+    "_recovery_tool_path": _s225_win.tool_path, "_recovery_timestamp": time.time(),
+}), encoding="utf-8")
+_s225_saved_q = QMessageBox.question
+QMessageBox.question = staticmethod(lambda *a, **kw: QMessageBox.StandardButton.Yes)
+_s225_exc = None
+try:
+    _s225_win._check_for_recovery()
+except Exception as _e:
+    _s225_exc = _e
+finally:
+    QMessageBox.question = _s225_saved_q
+check(_s225_exc is None, f"225a: an invalid recovery file does not raise ({_s225_exc!r})")
+check(not _s225_path.exists(), "225a: the invalid recovery file is discarded")
+
+# 225b-d: ownership rule for files in a shared temp dir
+_s225_owned = getattr(scaffold, "_owned_privately", None)
+check(callable(_s225_owned), "225b: scaffold._owned_privately exists")
+if callable(_s225_owned):
+    class _S225Stat:
+        def __init__(self, uid, mode):
+            self.st_uid, self.st_mode = uid, mode
+    check(_s225_owned(_S225Stat(1000, 0o100600), 1000), "225c: own file, mode 600 is trusted")
+    check(not _s225_owned(_S225Stat(1001, 0o100600), 1000), "225d: another user's file is not trusted")
+    check(not _s225_owned(_S225Stat(1000, 0o100622), 1000), "225d: a group/world-writable file is not trusted")
+
+# 225e: the atomic write no longer goes through the fixed <name>.tmp path
+_s225_dir = Path(tempfile.mkdtemp(prefix="s225_"))
+_s225_target = _s225_dir / "out.json"
+_s225_planted = _s225_dir / "out.json.tmp"
+_s225_planted.write_text("planted", encoding="utf-8")
+scaffold._atomic_write_json(_s225_target, {"a": 1})
+check(json.loads(_s225_target.read_text(encoding="utf-8")) == {"a": 1}, "225e: atomic write still writes the file")
+check(_s225_planted.exists() and _s225_planted.read_text(encoding="utf-8") == "planted",
+      "225e: a file planted at <name>.tmp is neither used nor consumed")
+check(sorted(p.name for p in _s225_dir.iterdir()) == ["out.json", "out.json.tmp"],
+      f"225f: no temp debris left ({sorted(p.name for p in _s225_dir.iterdir())})")
+shutil.rmtree(_s225_dir, ignore_errors=True)
+
+_s225_win.close()
+_s225_win.deleteLater()
+app.processEvents()
+
 
 # =====================================================================
 # Final cleanup

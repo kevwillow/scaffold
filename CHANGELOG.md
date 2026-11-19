@@ -3,6 +3,33 @@
 All notable changes to Scaffold are documented here.
 
 
+## [Unreleased]
+
+### Added
+
+- **Form labels show the real CLI flag** under each field name (e.g. `-sL`, or `-p, --ports` when there is a short flag), in small monospace. Positional arguments are left out, since their `flag` is only a placeholder. The flag and name are HTML-escaped. Covered by `test_functional.py` §221.
+- **The Output header shows the last run's result**: a colored pill (`exit 0`, `exit 2`, `stopped`, `timed out`, `crashed`, `failed to start`, ...) plus run time and the number of output lines. Clear Output hides it. Covered by §222.
+
+### Changed
+
+- **New light and dark themes.** Both themes now come from one set of color tokens (`LIGHT_COLORS` / `DARK_COLORS`, read with `_c()`) and one shared stylesheet, replacing about 60 scattered light/dark branches. Light mode is a full theme instead of stock OS controls; dark mode moves from Catppuccin to a neutral graphite with a blue accent. Both get 6-8px rounded corners, an accent focus border, hover states, drawn checkmarks, softer table grids, and a solid green Run button. The output panel stays dark in both.
+- Invalid cells in the cascade variable editor use the theme's error tint; the fixed dark maroon was hard to read in light mode.
+- The Copy format dropdown arrow is themed instead of drawn natively.
+
+### Fixed
+
+- **A cascade capture can no longer add arguments by breaking out of quotes in Additional Flags.** Each capture was checked as one token on its own, then pasted into the flags text, where a value like `a" --evil "b` could close the user's quotes (`--name "{v}"`) and add `--evil` as a separate argument. The flags text is now also checked in context: it must split into the same number of arguments with the real values as with a plain placeholder, or the cascade halts. Covered by `test_functional.py` §179 T18.
+- **On Windows, a tool that resolves to a `.bat` or `.cmd` file refuses arguments containing cmd.exe command characters** (`& | < > ^ % ! " ( )` and line breaks). Windows runs batch files through cmd.exe, which re-parses their arguments, and QProcess does not escape for it, so a field value like `x & calc` could start a second program (the "BatBadBut" class of bug). Run now stops with a message instead. This applies to bare names that resolve through `PATHEXT` and to absolute paths. Covered by `test_security.py` §13.
+- **Long runs no longer keep their whole output in memory twice.** Every run kept the full stdout and stderr in strings for cascade captures, and each append copied the whole string, so a long nmap or hashcat run grew memory and slowed down with every chunk. Captures only ever read the last 64 KB of each stream, so that is all that is kept now, in the GUI and in headless `--run-cascade`. Covered by `test_functional.py` §223.
+- **Windows paths in Additional Flags keep their backslashes.** The flags were split with POSIX shell rules, where a backslash is an escape, so `--out C:\temp\x.txt` reached the tool as `C:tempx.txt`. On Windows a backslash is now literal, while quotes still group words and are removed. Linux and macOS are unchanged. This applies to the form, its validity check and cascade substitution. Covered by `test_functional.py` §224.
+- **The ReDoS check on schema regexes catches more nested-quantifier shapes.** Validation regexes run on the GUI thread on every keystroke, and the check missed patterns like `^(\w+\s?)*$`, `((a+))+` and `(a+){2,}`. A schema with one could freeze the app: 25 typed characters took 0.67 s, doubling with each extra character. The check now flags any group that ends in a quantifier and is itself repeated open-endedly. Groups that end in a literal, like `(\w+\.)+`, are still accepted, and every bundled schema and cascade still validates. Covered by `test_security.py` §14.
+- **Crash-recovery files are hardened.** They live in the system temp folder, which is shared between users on Linux.
+  - Another user could plant one with any form values (including elevation) that Scaffold would offer to restore. Recovery now ignores a file it doesn't own or that others can write to (Linux/macOS).
+  - The contents now go through the same preset validator as preset loads. A wrong-typed value used to crash the restore.
+  - `_atomic_write_json` (used for recovery files, presets and cascades) writes through an unpredictable `mkstemp` name instead of a fixed `<name>.tmp`, so a planted file or symlink there is never written through. Files keep the permissions a plain create would give them.
+
+  Covered by `test_functional.py` §225. §138's simulated mid-write failure now injects at `os.fdopen`, which is what the atomic write uses.
+
 ## [v2.13.2] — Unreleased
 
 Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixes that were each reproduced against v2.13.1 before changing code. Every behavioral fix has a regression check in new `test_functional.py` sections §211 to §216, and each check was confirmed to fail on v2.13.1. Three v2.13.1 tests that were red on Linux/macOS (§107a to §107c, `test_security` 12b) now pass there.
