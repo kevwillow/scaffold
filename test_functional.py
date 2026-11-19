@@ -32347,6 +32347,31 @@ shutil.rmtree(_s227_dir, ignore_errors=True)
 
 
 # =====================================================================
+# Section 228
+# =====================================================================
+print("\n--- Section 228: Copy as CMD keeps % literal (C4) ---")
+
+# cmd.exe expands %VAR% even inside double quotes, so a value like
+# 100%USERPROFILE% changed when the copied command was pasted.
+check("%USERPROFILE%" not in scaffold._format_cmd(["echo", "100%USERPROFILE%"]),
+      "228a: a %VAR% run is not emitted as-is")
+
+if sys.platform == "win32":
+    import subprocess as _s228_sp
+    _s228_printer = [sys.executable, "-c", "import sys, json; print(json.dumps(sys.argv[1:]))"]
+    for _s228_args in (["100%USERPROFILE%"], ["%PATH%", "a b%"], ["C:\\dir\\%TEMP%\\"], ["50%", 'q"%x%"']):
+        _s228_line = scaffold._format_cmd(_s228_printer + _s228_args)
+        _s228_out = _s228_sp.run(f'cmd /d /s /c "{_s228_line}"', capture_output=True, text=True,
+                                 env={**os.environ, "x": "EXPANDED"}).stdout.strip()
+        try:
+            _s228_got = json.loads(_s228_out)
+        except ValueError:
+            _s228_got = _s228_out
+        check(_s228_got == _s228_args,
+              f"228b: cmd.exe passes {_s228_args!r} through unchanged (got {str(_s228_got)[:120]!r})")
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 shutil.rmtree(_s200_tmpdir, ignore_errors=True)

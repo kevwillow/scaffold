@@ -2968,7 +2968,8 @@ def _format_bash(cmd: list[str]) -> str:
     return shlex.join(cmd)
 
 
-_SAFE_TOKEN_RE = re.compile(r'^[A-Za-z0-9_./:=+,@%-]+$')
+# No '%': cmd.exe expands %VAR% even inside double quotes
+_SAFE_TOKEN_RE = re.compile(r'^[A-Za-z0-9_./:=+,@-]+$')
 # PowerShell needs its own whitelist: in argument mode ',' builds an array
 # (split into separate argv entries) and a leading '@' splats a variable.
 _PS_SAFE_TOKEN_RE = re.compile(r'^[A-Za-z0-9_./:=+%-]+$')
@@ -3018,6 +3019,12 @@ def _format_cmd(cmd: list[str]) -> str:
             parts.append(token)
         else:
             escaped = token.replace('"', '""')
+            # cmd.exe expands %VAR% before it looks at quotes, and ^ does not
+            # escape inside them. Closing the quotes around each % makes the
+            # would-be variable name contain quote characters, so it can't
+            # match and stays literal; the program still gets one argument.
+            # Backslashes right before an inserted quote are doubled (MSVCRT).
+            escaped = re.sub(r'(\\*)%', lambda m: m.group(1) * 2 + '"%"', escaped)
             # Programs parsing argv with MSVCRT rules read \" as a literal
             # quote, so double any trailing backslashes before the closing quote
             m = re.search(r'\\+$', escaped)
