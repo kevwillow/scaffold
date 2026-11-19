@@ -9202,6 +9202,32 @@ class CascadeSidebar(QDockWidget):
         )
         if self._chain_state == CHAIN_IDLE:
             return  # halt fired inside _substitute_captures
+
+        # In-context check: a value that is one token on its own can still
+        # close a quote in the surrounding text (--name "{v}" with
+        # v = 'a" --evil "b') and add argv elements. Substituting a plain
+        # placeholder for every capture shows how many tokens the user's
+        # text should produce; the real substitution must produce the same.
+        placeholder_text, _ = substitute_captures(
+            original, {name: "x" for name in self._chain_variable_values}
+        )
+        try:
+            expected = len(_shlex.split(placeholder_text))
+        except ValueError:
+            expected = None  # the user's own text doesn't parse; get_extra_flags ignores it
+        if expected is not None:
+            try:
+                actual = len(_shlex.split(new_text))
+            except ValueError:
+                actual = None
+            if actual != expected:
+                self._cascade_finish_status = "error_halted"
+                self._chain_cleanup(
+                    "Cascade stopped: a capture changed how the extra flags "
+                    f"split into arguments ({expected} expected, got "
+                    f"{'unparseable text' if actual is None else actual})"
+                )
+                return
         if new_text != original:
             form.extra_flags_edit.setPlainText(new_text)
 

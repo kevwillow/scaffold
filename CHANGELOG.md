@@ -16,6 +16,10 @@ All notable changes to Scaffold are documented here.
 - Invalid cells in the cascade variable editor use the theme's error tint; the fixed dark maroon was hard to read in light mode.
 - The Copy format dropdown arrow is themed instead of drawn natively.
 
+### Fixed
+
+- **A cascade capture can no longer add arguments by breaking out of quotes in Additional Flags.** Each capture was checked as one token on its own, then pasted into the flags text, where a value like `a" --evil "b` could close the user's quotes (`--name "{v}"`) and add `--evil` as a separate argument. The flags text is now also checked in context: it must split into the same number of arguments with the real values as with a plain placeholder, or the cascade halts. Covered by `test_functional.py` §179 T18.
+
 ## [v2.13.2] — Unreleased
 
 Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixes that were each reproduced against v2.13.1 before changing code. Every behavioral fix has a regression check in new `test_functional.py` sections §211 to §216, and each check was confirmed to fail on v2.13.1. Three v2.13.1 tests that were red on Linux/macOS (§107a to §107c, `test_security` 12b) now pass there.

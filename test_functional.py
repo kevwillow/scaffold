@@ -23305,6 +23305,38 @@ else:
     check(False, "T17d: step-2 argv substitution check skipped — fewer than 2 argvs")
 
 
+# ---------------------------------------------------------------
+# T18 — a capture can't break out of quotes in extra flags (S1)
+# ---------------------------------------------------------------
+# The value 'a" --evil "b' is one shlex token on its own, so the
+# value-level check above passes it. Pasted into --name "{v}" it closes
+# the quote and adds --evil as a separate argv element.
+print("\n--- T18: quote breakout in extra flags halts ---")
+
+_s179_t18_argvs, _s179_t18_finish, _s179_t18_status, _s179_t18_state = _s179_run_cascade_capture_argv(
+    step1_captures=[{"name": "v", "source": "stdout", "pattern": r"(READY)", "group": 1}],
+    fake_extract_result={"v": 'a" --evil "b'},
+    step2_extra_flags='--name "{v}"',
+    stop_on_error=False,
+)
+check(_s179_t18_finish == "error_halted",
+      f"T18a: quote breakout halts the cascade (got {_s179_t18_finish!r})")
+check(len(_s179_t18_argvs) == 1,
+      f"T18a: step 2 never ran (got {len(_s179_t18_argvs)} argvs)")
+check(not any("--evil" in a for a in _s179_t18_argvs),
+      f"T18a: injected flag never reached an argv (got {_s179_t18_argvs!r})")
+
+# T18b — the same quoted placement with a plain value still works
+_s179_t18b_argvs, _s179_t18b_finish, _s179_t18b_status, _s179_t18b_state = _s179_run_cascade_capture_argv(
+    step1_captures=[{"name": "v", "source": "stdout", "pattern": r"(READY)", "group": 1}],
+    fake_extract_result={"v": "hello"},
+    step2_extra_flags='--name "{v}"',
+    stop_on_error=False,
+)
+check(len(_s179_t18b_argvs) >= 2 and "hello" in _s179_t18b_argvs[1],
+      f"T18b: quoted capture with a plain value substitutes (got {_s179_t18b_argvs!r})")
+
+
 # Cleanup section 179
 shutil.rmtree(_s179_tmpdir, ignore_errors=True)
 QSettings("Scaffold", "Scaffold").remove("cascade")
