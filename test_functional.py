@@ -32372,6 +32372,43 @@ if sys.platform == "win32":
 
 
 # =====================================================================
+# Section 229
+# =====================================================================
+print("\n--- Section 229: A read/write error doesn't drop a running process (L2) ---")
+
+# _on_error released the QProcess for every error. After ReadError or
+# WriteError the child is still running, so deleteLater killed it and
+# blocked on it, and its exit was never handled.
+_s229_win = scaffold.MainWindow(tool_path=str(Path(__file__).parent / "scaffold_data" / "tools" / "ping.json"))
+app.processEvents()
+_s229_proc = QProcess(_s229_win)
+_s229_proc.setProgram(sys.executable)
+_s229_proc.setArguments(["-c", "import time; time.sleep(30)"])
+_s229_proc.finished.connect(_s229_win._on_finished)
+_s229_win.process = _s229_proc
+_s229_win._killed = False
+_s229_win._error_reported = False
+_s229_proc.start()
+_s229_proc.waitForStarted(5000)
+
+_s229_win._on_error(QProcess.ProcessError.ReadError)
+check(_s229_win.process is _s229_proc,
+      "229a: the still-running process is kept until it exits")
+check(_s229_win._killed, "229b: the running process is asked to stop")
+
+_s229_deadline = time.monotonic() + 15
+while _s229_win.process is not None and time.monotonic() < _s229_deadline:
+    app.processEvents()
+    time.sleep(0.05)
+check(_s229_win.process is None, "229c: the process is released once it has exited")
+check(_s229_proc.state() == QProcess.ProcessState.NotRunning, "229c: the child is no longer running")
+
+_s229_win.close()
+_s229_win.deleteLater()
+app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 shutil.rmtree(_s200_tmpdir, ignore_errors=True)
