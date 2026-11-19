@@ -10798,16 +10798,33 @@ class MainWindow(QMainWindow):
         return super().eventFilter(obj, event)
 
     def _update_output_search_visibility(self) -> None:
-        """Show the output search bar when output has content, hide when empty."""
-        has_content = bool(self.output.toPlainText().strip())
+        """Show the output search bar when output has content, hide when empty.
+
+        Called after output changes, so an open search is recomputed here:
+        new lines add matches and trimmed lines shift every position.
+        """
+        has_content = not self.output.document().isEmpty()
         self._output_search_widget.setVisible(has_content)
         if not has_content:
             self._close_output_search()
+        elif self._output_search_bar.text().strip():
+            self._refresh_output_search()
+
+    def _refresh_output_search(self) -> None:
+        """Recompute matches for the current query, keeping the current match
+        index where possible and without scrolling away from new output."""
+        index = self._output_search_index
+        self._find_output_matches(self._output_search_bar.text().strip())
+        if self._output_search_matches:
+            self._output_search_index = min(max(index, 0), len(self._output_search_matches) - 1)
+            self._output_search_count_label.setText(
+                f"{self._output_search_index + 1} of {len(self._output_search_matches)}")
+        self._apply_output_search_highlights(scroll=False)
 
     def _close_output_search(self) -> None:
         """Clear search state/highlights. Only hide the widget if output is empty."""
         self._output_search_bar.clear()
-        has_content = bool(self.output.toPlainText().strip())
+        has_content = not self.output.document().isEmpty()
         if not has_content:
             self._output_search_widget.setVisible(False)
         self._output_search_matches = []
@@ -10818,25 +10835,12 @@ class MainWindow(QMainWindow):
 
     def _on_output_search_changed(self, text: str) -> None:
         """Recompute all matches and highlight them when search text changes."""
-        self._output_search_matches = []
-        self._output_search_index = -1
         query = text.strip()
+        self._find_output_matches(query)
         if not query:
             self._output_search_count_label.setText("")
             self.output.setExtraSelections([])
             return
-
-        # Find all matches (case-insensitive)
-        doc = self.output.document()
-        cursor = QTextCursor(doc)
-        # QTextDocument.find is case-insensitive by default when no FindCaseSensitively flag is set
-        while True:
-            cursor = doc.find(query, cursor)
-            if cursor.isNull():
-                break
-            start = cursor.selectionStart()
-            length = cursor.selectionEnd() - start
-            self._output_search_matches.append((start, length))
 
         if self._output_search_matches:
             self._output_search_index = 0
@@ -10848,7 +10852,24 @@ class MainWindow(QMainWindow):
 
         self._apply_output_search_highlights()
 
-    def _apply_output_search_highlights(self) -> None:
+    def _find_output_matches(self, query: str) -> None:
+        """Set _output_search_matches to every (start, length) of query in the output."""
+        self._output_search_matches = []
+        self._output_search_index = -1
+        if not query:
+            return
+        doc = self.output.document()
+        cursor = QTextCursor(doc)
+        # QTextDocument.find is case-insensitive by default when no FindCaseSensitively flag is set
+        while True:
+            cursor = doc.find(query, cursor)
+            if cursor.isNull():
+                break
+            start = cursor.selectionStart()
+            length = cursor.selectionEnd() - start
+            self._output_search_matches.append((start, length))
+
+    def _apply_output_search_highlights(self, scroll: bool = True) -> None:
         """Apply extraSelections to highlight all matches, current match in orange."""
         selections = []
 
@@ -10874,7 +10895,7 @@ class MainWindow(QMainWindow):
         self.output.setExtraSelections(selections)
 
         # Scroll to current match
-        if self._output_search_index >= 0 and self._output_search_matches:
+        if scroll and self._output_search_index >= 0 and self._output_search_matches:
             start, length = self._output_search_matches[self._output_search_index]
             cursor = QTextCursor(self.output.document())
             cursor.setPosition(start)
