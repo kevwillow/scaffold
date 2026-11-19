@@ -3779,6 +3779,29 @@ def _extended_path() -> str | None:
     return os.pathsep.join(custom) + os.pathsep + system_path
 
 
+# CreateProcess runs .bat/.cmd files through cmd.exe, which re-parses their
+# arguments; QProcess does not escape for it. Any of these in an argument
+# could start a second command ("BatBadBut"), so batch targets refuse them.
+_BATCH_UNSAFE_CHARS = frozenset('&|<>^%!"()\r\n')
+
+
+def _batch_file_arg_error(cmd: list[str], windows: bool = sys.platform == "win32") -> str | None:
+    """Return an error message if cmd runs a Windows batch file with an unsafe argument."""
+    if not windows or not cmd:
+        return None
+    program = cmd[0]
+    path = program if os.path.isabs(program) else shutil.which(program, path=_extended_path())
+    if not path or Path(path).suffix.lower() not in (".bat", ".cmd"):
+        return None
+    for arg in cmd[1:]:
+        bad = sorted(set(arg) & _BATCH_UNSAFE_CHARS)
+        if bad:
+            shown = " ".join(repr(c) for c in bad)
+            return (f"'{Path(path).name}' is a batch file, and cmd.exe would treat {shown} "
+                    f"in an argument as a command character. Remove it from the value.")
+    return None
+
+
 def _binary_in_path(binary: str) -> bool:
     """Check if binary is found in PATH (including custom directories)."""
     search_path = _extended_path()
@@ -12124,6 +12147,12 @@ class MainWindow(QMainWindow):
             resolved = shutil.which(cmd[0], path=_extended_path())
             if resolved:
                 cmd = [resolved] + cmd[1:]
+
+        batch_error = _batch_file_arg_error(cmd)
+        if batch_error:
+            self._show_status(batch_error, _c("error"))
+            self._append_output(f"--- Not run: {batch_error} ---\n", COLOR_ERR)
+            return
 
         # Handle elevation
         self._elevated_run = False

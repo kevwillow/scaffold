@@ -19,6 +19,7 @@ All notable changes to Scaffold are documented here.
 ### Fixed
 
 - **A cascade capture can no longer add arguments by breaking out of quotes in Additional Flags.** Each capture was checked as one token on its own, then pasted into the flags text, where a value like `a" --evil "b` could close the user's quotes (`--name "{v}"`) and add `--evil` as a separate argument. The flags text is now also checked in context: it must split into the same number of arguments with the real values as with a plain placeholder, or the cascade halts. Covered by `test_functional.py` §179 T18.
+- **On Windows, a tool that resolves to a `.bat` or `.cmd` file refuses arguments containing cmd.exe command characters** (`& | < > ^ % ! " ( )` and line breaks). Windows runs batch files through cmd.exe, which re-parses their arguments, and QProcess does not escape for it, so a field value like `x & calc` could start a second program (the "BatBadBut" class of bug). Run now stops with a message instead. This applies to bare names that resolve through `PATHEXT` and to absolute paths. Covered by `test_security.py` §13.
 
 ## [v2.13.2] — Unreleased
 

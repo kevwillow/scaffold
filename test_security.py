@@ -1632,6 +1632,64 @@ app.processEvents()
 
 
 # =====================================================================
+print("\n=== SECTION 13: Batch-file targets refuse cmd.exe metacharacters (S2) ===")
+# =====================================================================
+# CreateProcess runs .bat/.cmd through cmd.exe, which re-parses the
+# arguments; QProcess does not escape for it, so "x & calc" in a field
+# value would run calc. Scaffold refuses such arguments for batch targets.
+
+_s13_dir = Path(_shared_tmp) / "s13"
+_s13_dir.mkdir(exist_ok=True)
+_s13_bat = _s13_dir / "tool.bat"
+_s13_bat.write_text("@exit /b 0\r\n")
+_s13_fn = getattr(scaffold, "_batch_file_arg_error", None)
+check(callable(_s13_fn), "13a: scaffold._batch_file_arg_error exists")
+if callable(_s13_fn):
+    _s13_err = _s13_fn([str(_s13_bat), "ok", "x & calc"], windows=True)
+    check(_s13_err is not None and "'&'" in _s13_err,
+          f"13b: '&' in an argument to a .bat is refused ({_s13_err!r})")
+    for _s13_c in '|<>^%!"()':
+        check(_s13_fn([str(_s13_bat), f"a{_s13_c}b"], windows=True) is not None,
+              f"13c: {_s13_c!r} in an argument to a .bat is refused")
+    check(_s13_fn([str(_s13_bat), "plain value", "C:\\dir\\file.txt", "--flag=1"], windows=True) is None,
+          "13d: ordinary arguments (spaces, backslashes, =) are allowed")
+    check(_s13_fn([str(_s13_dir / "tool.CMD"), "a&b"], windows=True) is not None,
+          "13e: .cmd is treated like .bat, case-insensitively")
+    check(_s13_fn([str(_s13_dir / "tool.exe"), "a&b"], windows=True) is None,
+          "13f: .exe targets are not restricted")
+    check(_s13_fn([str(_s13_bat), "a&b"], windows=False) is None,
+          "13g: no restriction off Windows")
+
+if sys.platform == "win32" and callable(_s13_fn):
+    # 13h: a bare name that resolves to a .bat through PATHEXT is caught
+    _s13_saved_ext = scaffold._extended_path
+    scaffold._extended_path = lambda: str(_s13_dir)
+    try:
+        check(_s13_fn(["tool", "a&b"]) is not None,
+              "13h: bare 'tool' resolving to tool.bat is refused")
+    finally:
+        scaffold._extended_path = _s13_saved_ext
+
+if sys.platform == "win32":
+    # 13i: end to end, Run refuses instead of starting cmd.exe
+    _s13_schema = _s13_dir / "battool.json"
+    _s13_schema.write_text(json.dumps({
+        "tool": "battool", "binary": str(_s13_bat), "description": "",
+        "arguments": [{"name": "V", "flag": "--v", "type": "string"}],
+    }))
+    _s13_win = scaffold.MainWindow(tool_path=str(_s13_schema))
+    _s13_win.form.fields[(_s13_win.form.GLOBAL, "--v")]["widget"].setText("x & echo injected")
+    _s13_win._on_run_stop()
+    app.processEvents()
+    check(_s13_win.process is None, "13i: Run does not start a .bat with '&' in an argument")
+    check("Not run" in _s13_win.output.toPlainText(),
+          "13i: the output panel says why it did not run")
+    _s13_win.close()
+    _s13_win.deleteLater()
+    app.processEvents()
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 _cleanup_recovery_files()
