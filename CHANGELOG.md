@@ -37,6 +37,7 @@ All notable changes to Scaffold are documented here.
 
   Covered by `test_functional.py` §227.
 - **"Copy as CMD" keeps `%` literal.** cmd.exe expands `%VAR%` even inside double quotes, so a value like `100%USERPROFILE%` turned into `100C:\Users\...` when pasted. `%` is no longer left bare, and inside quotes each `%` is moved outside them, so the would-be variable name can't match while the program still receives the original text. Checked against a real cmd.exe in `test_functional.py` §228.
+- **A read or write error no longer abandons a running process.** After a `ReadError` or `WriteError` the child keeps running, but Scaffold released it right away. Qt's deferred delete then killed the child and blocked on it (or left it running), and its exit was never handled. Scaffold now stops it the normal way (terminate, then kill on a timer) and releases it once it exits. Covered by `test_functional.py` §229.
 
 ## [v2.13.2] — Unreleased
 

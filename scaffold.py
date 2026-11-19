@@ -12478,8 +12478,14 @@ class MainWindow(QMainWindow):
         # _on_finished() is never called.  Harmless double-set for Crashed.
         self._timeout_timer.stop()
         self._elapsed_timer.stop()
-        self._force_kill_timer.stop()
         self._run_start_time = None
+        if self.process is not None and self.process.state() != QProcess.ProcessState.NotRunning:
+            # Read/write errors leave the child running. Releasing it now would
+            # let deleteLater kill it and block on it; stop it instead, and
+            # _on_finished releases it once it exits.
+            self._stop_process()
+            return
+        self._force_kill_timer.stop()
         self._release_process()
 
     # ------------------------------------------------------------------
