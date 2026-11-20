@@ -56,6 +56,7 @@ QMessageBox.warning = _patched_warning
 # Auto-decline recovery prompts
 QMessageBox.question = lambda *a, **kw: QMessageBox.StandardButton.No
 
+import _test_settings  # noqa: F401  (before scaffold: keeps tests off real settings)
 import scaffold
 
 # Suppress the first-run welcome modal so tests don't block on QDialog.exec()

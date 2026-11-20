@@ -82,6 +82,7 @@ from PySide6.QtTest import QTest
 
 app = QApplication.instance() or QApplication(sys.argv)
 
+import _test_settings  # noqa: F401  (before scaffold: keeps tests off real settings)
 import scaffold
 
 # Suppress the first-run welcome modal so tests don't block on QDialog.exec().
@@ -632,7 +633,7 @@ app.processEvents()
 check(scaffold._dark_mode is False, "light mode restored")
 
 # Verify theme persistence logic
-settings = QSettings("Scaffold", "Scaffold")
+settings = scaffold._create_settings()
 settings.setValue("appearance/theme", "dark")
 pref = settings.value("appearance/theme")
 check(pref == "dark", "theme preference persists in QSettings")
@@ -3549,7 +3550,7 @@ for _name, _desc in [("alpha_preset", "First preset"), ("beta_preset", ""), ("ga
     _pp_paths.append(_pp)
 
 # Clear any leftover favorites
-_pp_settings = scaffold.QSettings("Scaffold", "Scaffold")
+_pp_settings = scaffold._create_settings()
 _pp_settings.remove(f"favorites/{window.data['tool']}")
 
 # 34a: PresetPicker with 3 presets, none favorited — all shown alphabetically
@@ -3594,7 +3595,7 @@ assert _pp_beta_row is not None, "beta_preset row not found"
 _pp_picker3._on_cell_clicked(_pp_beta_row, 0)
 app.processEvents()
 # Check QSettings
-_pp_fav_raw = scaffold.QSettings("Scaffold", "Scaffold").value(
+_pp_fav_raw = scaffold._create_settings().value(
     f"favorites/{window.data['tool']}", "[]")
 _pp_favs = json.loads(_pp_fav_raw) if isinstance(_pp_fav_raw, str) else _pp_fav_raw
 check("beta_preset" in _pp_favs, "34c: toggling star updates QSettings immediately")
@@ -3617,7 +3618,7 @@ app.processEvents()
 # Delete beta_preset file, but its name is still in favorites
 _pp_paths[1].unlink()
 _pp_picker5 = scaffold.PresetPicker(window.data["tool"], _pp_dir, mode="load")
-_pp_fav_raw5 = scaffold.QSettings("Scaffold", "Scaffold").value(
+_pp_fav_raw5 = scaffold._create_settings().value(
     f"favorites/{window.data['tool']}", "[]")
 _pp_favs5 = json.loads(_pp_fav_raw5) if isinstance(_pp_fav_raw5, str) else _pp_fav_raw5
 check("beta_preset" not in _pp_favs5,
@@ -4006,7 +4007,7 @@ app.processEvents()
 for _ep in _em_paths + [_em_last_path, _em_load_path]:
     if _ep.exists():
         _ep.unlink()
-scaffold.QSettings("Scaffold", "Scaffold").remove(f"favorites/{window.data['tool']}")
+scaffold._create_settings().remove(f"favorites/{window.data['tool']}")
 
 
 # =====================================================================
@@ -5113,7 +5114,7 @@ check(str(_s46_rpath).startswith(tempfile.gettempdir()), "46h: recovery file is 
 # 46i: _recovery_file_path() returns None when no tool loaded
 # Clear session/last_tool so the new window doesn't auto-load a tool
 from PySide6.QtCore import QSettings as _QS46
-_s46_settings = _QS46("Scaffold", "Scaffold")
+_s46_settings = scaffold._create_settings()
 _s46_last = _s46_settings.value("session/last_tool")
 _s46_settings.remove("session/last_tool")
 _s46_w2 = scaffold.MainWindow()
@@ -5958,6 +5959,7 @@ app.processEvents()
 # Section 50 — Portable Mode (_create_settings)
 # =====================================================================
 print("\n=== SECTION 50: Portable Mode (_create_settings) ===")
+_s50_saved_settings_file = os.environ.pop("SCAFFOLD_SETTINGS_FILE")
 
 from pathlib import Path as _Path50
 _script_dir_50 = _Path50(scaffold.__file__).parent
@@ -6040,6 +6042,8 @@ finally:
     for _p50 in (_portable_txt_50, _scaffold_ini_50):
         if _p50.exists():
             _p50.unlink()
+
+os.environ["SCAFFOLD_SETTINGS_FILE"] = _s50_saved_settings_file
 
 # =====================================================================
 # Section 51 — Copy As Shell Formats
@@ -6976,7 +6980,7 @@ app.processEvents()
 print("\n--- Section 62: Cascade Sidebar ---")
 
 # Clear stale cascade settings from any prior run
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 # 62a: CascadeSidebar class exists and is a QDockWidget
 check(hasattr(scaffold, "CascadeSidebar"), "62a: CascadeSidebar class exists")
@@ -7027,7 +7031,7 @@ for _s62_i, _s62_slot in enumerate(_s62_dock._slots):
     check(_s62_slot.get("delay", 0) == 0, f"62g: slot {_s62_i} delay is 0 initially")
 
 # 62h: _save_cascade writes to QSettings under "cascade/slots"
-_s62_test_settings = QSettings("Scaffold", "Scaffold")
+_s62_test_settings = scaffold._create_settings()
 _s62_dock._slots[0]["tool_path"] = "/fake/tool.json"
 _s62_dock._slots[0]["preset_path"] = "/fake/preset.json"
 _s62_dock._save_cascade()
@@ -7268,7 +7272,7 @@ _s63_test_dir = Path(__file__).parent / "tests"
 _s63_minimal = str(_s63_test_dir / "test_minimal.json")
 
 # Clear stale cascade settings
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 _s63_win = scaffold.MainWindow()
 _s63_win.show()
@@ -7431,7 +7435,7 @@ app.processEvents()
 print("\n--- Section 64: Chain Runner Targeted Fixes ---")
 
 # Clear stale cascade settings
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 _s64_win = scaffold.MainWindow()
 _s64_win.show()
@@ -7584,7 +7588,7 @@ app.processEvents()
 print("\n--- Section 65: Cascade Dynamic Slots ---")
 
 # Clear stale cascade settings
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 _s65_win = scaffold.MainWindow()
 _s65_win.show()
@@ -7592,7 +7596,7 @@ app.processEvents()
 _s65_dock = _s65_win.cascade_dock
 _s65_dock.show()
 app.processEvents()
-_s65_test_settings = QSettings("Scaffold", "Scaffold")
+_s65_test_settings = scaffold._create_settings()
 
 # 65a: CascadeSidebar starts with CASCADE_INITIAL_SLOTS (2) empty slots
 check(len(_s65_dock._slots) == scaffold.CASCADE_INITIAL_SLOTS,
@@ -7758,7 +7762,7 @@ app.processEvents()
 print("\n--- Section 66: Cascade Layout Fixes, Delay Spinner, Loop Mode ---")
 
 # Clear stale cascade settings
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 _s66_win = scaffold.MainWindow()
 _s66_win.show()
@@ -7766,7 +7770,7 @@ app.processEvents()
 _s66_dock = _s66_win.cascade_dock
 _s66_dock.show()
 app.processEvents()
-_s66_test_settings = QSettings("Scaffold", "Scaffold")
+_s66_test_settings = scaffold._create_settings()
 
 # -- Bug 1 fix: scroll area does NOT have stretch=1 --
 
@@ -7893,7 +7897,7 @@ print("\n--- Section 67: Cascade Save/Load/Import/Export ---")
 # Redirect _cascades_dir() to a tmpdir so this section cannot touch the
 # real cascades/ folder (which contains bundled cascade files committed
 # to the repo). Pattern mirrors section 90's _s90_fake_cascades_dir.
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s67_tmpdir = Path(tempfile.mkdtemp(prefix="scaffold_s67_"))
 _s67_orig_cascades_dir = scaffold._cascades_dir
 
@@ -8152,7 +8156,7 @@ if _s67_critical_calls:
 _s67_cascade_tool.unlink(missing_ok=True)
 scaffold._cascades_dir = _s67_orig_cascades_dir
 shutil.rmtree(_s67_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s67_win.close()
 _s67_win.deleteLater()
 app.processEvents()
@@ -8927,7 +8931,7 @@ check(_s76_ordered_export["variables"] == _s76_ordered_vars,
 
 _s76_w.close(); _s76_w.deleteLater(); app.processEvents()
 QMessageBox.warning = _s76_orig_warning
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 # =====================================================================
 # Section 77 — Cascade Variable Input Dialog
@@ -9111,7 +9115,7 @@ _s78_path_b = os.path.join(_s78_tmpdir, "tool_b.json")
 Path(_s78_path_a).write_text(json.dumps(_s78_tool_a))
 Path(_s78_path_b).write_text(json.dumps(_s78_tool_b))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s78_win = scaffold.MainWindow()
 _s78_win.show()
 app.processEvents()
@@ -9276,14 +9280,14 @@ _s78_win.close()
 _s78_win.deleteLater()
 app.processEvents()
 shutil.rmtree(_s78_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 # =====================================================================
 # Section 79 — Cascade Variable Definition UI
 # =====================================================================
 print("\n=== SECTION 79: Cascade Variable Definition UI ===")
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s79_win = scaffold.MainWindow()
 _s79_win.show()
 app.processEvents()
@@ -9407,14 +9411,14 @@ _s79_win.close()
 _s79_win.deleteLater()
 app.processEvents()
 shutil.rmtree(_s79_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 # =====================================================================
 # Section 80 — Chain Runner Closure Accumulation Fix
 # =====================================================================
 print("\n=== SECTION 80: Chain Runner Closure Accumulation Fix ===")
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s80_win = scaffold.MainWindow()
 _s80_win.show()
 app.processEvents()
@@ -9505,7 +9509,7 @@ _s80_win.close()
 _s80_win.deleteLater()
 app.processEvents()
 shutil.rmtree(_s80_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 print("\n=== SECTION 81: Shell Quoting Edge-Case Fixes ===")
 
@@ -10045,7 +10049,7 @@ check(not Path(_s85_tmpdir).exists(),
 # =====================================================================
 print("\n=== SECTION 86: Phase 1 Visual/Styling Fixes ===")
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s86_win = scaffold.MainWindow()
 _s86_win.show()
 app.processEvents()
@@ -10110,7 +10114,7 @@ app.processEvents()
 _s86_win.close()
 _s86_win.deleteLater()
 app.processEvents()
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 # =====================================================================
 # Section 87 — Phase 2 Ghost Widget Fix (deleteLater)
@@ -10131,7 +10135,7 @@ _s87_schema = {
 _s87_tool_path = Path(_s87_tmpdir) / "s87_tool.json"
 _s87_tool_path.write_text(json.dumps(_s87_schema))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s87_win = scaffold.MainWindow()
 _s87_win.show()
 app.processEvents()
@@ -10209,7 +10213,7 @@ check(_s87_load_actual == _s87_load_expected,
 _s87_win.close()
 _s87_win.deleteLater()
 app.processEvents()
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 shutil.rmtree(_s87_tmpdir, ignore_errors=True)
 
 # =====================================================================
@@ -10217,7 +10221,7 @@ shutil.rmtree(_s87_tmpdir, ignore_errors=True)
 # =====================================================================
 print("  Section 88: Required-field snapshot on cascade run")
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s88_win = scaffold.MainWindow()
 _s88_win.show()
 app.processEvents()
@@ -10390,7 +10394,7 @@ app.processEvents()
 _s88_win.close()
 _s88_win.deleteLater()
 app.processEvents()
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -10398,7 +10402,7 @@ QSettings("Scaffold", "Scaffold").remove("cascade")
 # =====================================================================
 print("  Section 89: Current cascade name tracking and display")
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s89_win = scaffold.MainWindow()
 _s89_win.show()
 app.processEvents()
@@ -10503,7 +10507,7 @@ app.processEvents()
 _s89_win.close()
 _s89_win.deleteLater()
 app.processEvents()
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -10642,7 +10646,7 @@ app.processEvents()
 scaffold.CascadeListDialog.accept = _s90_orig_accept
 scaffold._cascades_dir = _s90_orig_cascades_dir
 shutil.rmtree(_s90_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -11827,7 +11831,7 @@ _s99_dlg6.deleteLater()
 app.processEvents()
 
 # B2.7 — "None" variables are skipped during chain injection
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s99_win7 = scaffold.MainWindow()
 _s99_win7.show()
 app.processEvents()
@@ -11899,7 +11903,7 @@ _s99_old_cascade = {
         {"name": "OldList", "flag": "--old2", "type_hint": "integer", "apply_to": [0, 2]},
     ],
 }
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s99_win8 = scaffold.MainWindow()
 _s99_win8.show()
 app.processEvents()
@@ -11938,7 +11942,7 @@ app.processEvents()
 
 # Cleanup section 99
 shutil.rmtree(_s99_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -11950,7 +11954,7 @@ print("\n=== SECTION 100: Ghost Widget Prevention ===")
 # 100a — _build_form_view: no ghost widgets after switching tools
 _s100_nmap = str(Path(__file__).parent / "scaffold_data" / "tools" / "nmap.json")
 _s100_curl = str(Path(__file__).parent / "scaffold_data" / "tools" / "curl.json")
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s100_win = scaffold.MainWindow()
 _s100_win.show()
 app.processEvents()
@@ -11993,7 +11997,7 @@ _s100_win.deleteLater()
 app.processEvents()
 
 # 100b — _on_remove_slot: removed widget absent from layout
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s100_win2 = scaffold.MainWindow()
 _s100_win2.show()
 app.processEvents()
@@ -12038,7 +12042,7 @@ check(not _s100_found_ghost,
 _s100_win2.close()
 _s100_win2.deleteLater()
 app.processEvents()
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -12048,7 +12052,7 @@ QSettings("Scaffold", "Scaffold").remove("cascade")
 print("\n--- Section 101: Cascade Import Clamp, BOM Tolerance, Chain Cleanup Run-Btn, Timer Stops ---")
 
 # --- 101a: Cascade import clamps to CASCADE_MAX_SLOTS ---
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s101_win = scaffold.MainWindow()
 _s101_win.show()
 app.processEvents()
@@ -12090,7 +12094,7 @@ _s101_win.statusBar().showMessage = _s101_orig_showMsg
 _s101_win.close()
 _s101_win.deleteLater()
 app.processEvents()
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 # --- 101b: BOM tolerance (_read_json_file helper) ---
 _s101_bom_dir = Path(tempfile.mkdtemp(prefix="s101_bom_"))
@@ -12155,7 +12159,7 @@ except AttributeError:
 shutil.rmtree(_s101_bom_dir, ignore_errors=True)
 
 # --- 101c: _chain_cleanup re-evaluates run_btn via _update_preview ---
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s101_win2 = scaffold.MainWindow()
 _s101_win2.show()
 app.processEvents()
@@ -12191,7 +12195,7 @@ check(len(_s101_still_missing) > 0,
       "101c: required fields still reported missing after cleanup")
 
 # 101c2: Edge case — _chain_cleanup with no tool loaded
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s101_win3 = scaffold.MainWindow()
 app.processEvents()
 _s101_dock3 = _s101_win3.cascade_dock
@@ -12470,7 +12474,7 @@ check(len(_s103_dock._cascade_variables) == 2,
 _s103_win.close()
 _s103_win.deleteLater()
 app.processEvents()
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -12553,7 +12557,7 @@ _s105_malicious_values = [
     ("--evil-injected-flag", "value that looks like a flag"),
 ]
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 for _s105_idx, (_s105_val, _s105_desc) in enumerate(_s105_malicious_values):
     _s105_letter = chr(ord("a") + _s105_idx)
@@ -12626,7 +12630,7 @@ for _s105_idx, (_s105_val, _s105_desc) in enumerate(_s105_malicious_values):
 
 # Cleanup section 105
 shutil.rmtree(_s105_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -12647,7 +12651,7 @@ _s106_tool = {
 _s106_path = os.path.join(_s106_tmpdir, "tool_106.json")
 Path(_s106_path).write_text(json.dumps(_s106_tool))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 # 106a: Variable with apply_to "none" is preserved through save/load (QSettings)
 _s106_win_a = scaffold.MainWindow()
@@ -12685,7 +12689,7 @@ check(_s106_dock_a2._cascade_variables[0].get("apply_to") == "none",
 _s106_win_a2.close()
 _s106_win_a2.deleteLater()
 app.processEvents()
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 # 106b: Variable with apply_to "none" is NOT injected during chain execution
 _s106_win_b = scaffold.MainWindow()
@@ -12733,7 +12737,7 @@ _s106_win_b.deleteLater()
 app.processEvents()
 
 # 106c: Exported cascade JSON contains "none" literally
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s106_win_c = scaffold.MainWindow()
 _s106_win_c.show()
 app.processEvents()
@@ -12768,7 +12772,7 @@ app.processEvents()
 
 # Cleanup section 106
 shutil.rmtree(_s106_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -12790,7 +12794,7 @@ _s107_tool = {
 _s107_path = os.path.join(_s107_tmpdir, "tool_107.json")
 Path(_s107_path).write_text(json.dumps(_s107_tool))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s107_win = scaffold.MainWindow()
 _s107_win.show()
 app.processEvents()
@@ -12841,7 +12845,7 @@ _s107_win.close()
 _s107_win.deleteLater()
 app.processEvents()
 shutil.rmtree(_s107_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -13024,7 +13028,7 @@ _s111_tool = {
 _s111_path = os.path.join(_s111_tmpdir, "tool_111.json")
 Path(_s111_path).write_text(json.dumps(_s111_tool))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s111_win = scaffold.MainWindow()
 _s111_win.show()
 app.processEvents()
@@ -13091,7 +13095,7 @@ _s111_win.close()
 _s111_win.deleteLater()
 app.processEvents()
 shutil.rmtree(_s111_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -13111,7 +13115,7 @@ _s112_tool = {
 _s112_path = os.path.join(_s112_tmpdir, "tool_112.json")
 Path(_s112_path).write_text(json.dumps(_s112_tool))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s112_win = scaffold.MainWindow()
 _s112_win.show()
 app.processEvents()
@@ -13210,7 +13214,7 @@ _s112_win.close()
 _s112_win.deleteLater()
 app.processEvents()
 shutil.rmtree(_s112_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -13375,7 +13379,7 @@ _s115_tool = {
 _s115_path = os.path.join(_s115_tmpdir, "tool_115.json")
 Path(_s115_path).write_text(json.dumps(_s115_tool))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s115_win = scaffold.MainWindow()
 _s115_win.show()
 app.processEvents()
@@ -13566,7 +13570,7 @@ _s115_win.close()
 _s115_win.deleteLater()
 app.processEvents()
 shutil.rmtree(_s115_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -13752,7 +13756,7 @@ _s117_tool = {
 _s117_path = os.path.join(_s117_tmpdir, "tool_117.json")
 Path(_s117_path).write_text(json.dumps(_s117_tool))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s117_win = scaffold.MainWindow()
 _s117_win.show()
 app.processEvents()
@@ -13863,7 +13867,7 @@ _s117_win.close()
 _s117_win.deleteLater()
 app.processEvents()
 shutil.rmtree(_s117_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -13883,7 +13887,7 @@ _s118_tool = {
 _s118_path = os.path.join(_s118_tmpdir, "tool_118.json")
 Path(_s118_path).write_text(json.dumps(_s118_tool))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s118_win = scaffold.MainWindow()
 _s118_win.show()
 app.processEvents()
@@ -14013,7 +14017,7 @@ _s118_win.close()
 _s118_win.deleteLater()
 app.processEvents()
 shutil.rmtree(_s118_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -14034,7 +14038,7 @@ _s119_tool = {
 _s119_path = os.path.join(_s119_tmpdir, "tool_119.json")
 Path(_s119_path).write_text(json.dumps(_s119_tool))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s119_win = scaffold.MainWindow()
 _s119_win.show()
 app.processEvents()
@@ -14278,7 +14282,7 @@ _s119_win.close()
 _s119_win.deleteLater()
 app.processEvents()
 shutil.rmtree(_s119_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -14304,7 +14308,7 @@ _s120_tool = {
 _s120_path = os.path.join(_s120_tmpdir, "tool_120.json")
 Path(_s120_path).write_text(json.dumps(_s120_tool))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s120_win = scaffold.MainWindow()
 _s120_win.show()
 app.processEvents()
@@ -14409,7 +14413,7 @@ _s123_tool = {
 _s123_path = os.path.join(_s123_tmpdir, "tool_123.json")
 Path(_s123_path).write_text(json.dumps(_s123_tool))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s123_win = scaffold.MainWindow()
 _s123_win.show()
 app.processEvents()
@@ -14485,7 +14489,7 @@ _s124_tool = {
 _s124_path = os.path.join(_s124_tmpdir, "tool_124.json")
 Path(_s124_path).write_text(json.dumps(_s124_tool))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s124_win = scaffold.MainWindow()
 _s124_win.show()
 app.processEvents()
@@ -15786,7 +15790,7 @@ shutil.rmtree(str(_s138_preset_dir.parent), ignore_errors=True)
 # =====================================================================
 print("\n--- Section 139: Cascade wrapper stacking fix ---")
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s139_tmpdir = tempfile.mkdtemp(prefix="scaffold_test139_")
 _s139_tool = {
     "tool": "test139_tool",
@@ -15873,7 +15877,7 @@ _s139_win.close()
 _s139_win.deleteLater()
 app.processEvents()
 shutil.rmtree(_s139_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -15881,7 +15885,7 @@ QSettings("Scaffold", "Scaffold").remove("cascade")
 # =====================================================================
 print("\n--- Section 140: Cascade visibility persistence on native-X close ---")
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s140_win = scaffold.MainWindow()
 _s140_win.show()
 app.processEvents()
@@ -15905,7 +15909,7 @@ check(_s140_win.settings.value("cascade/visible", type=bool) is True,
 _s140_win.close()
 _s140_win.deleteLater()
 app.processEvents()
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -16037,7 +16041,7 @@ _s143_tool = {
 _s143_path = os.path.join(_s143_tmpdir, "tool_143.json")
 Path(_s143_path).write_text(json.dumps(_s143_tool))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s143_win = scaffold.MainWindow()
 _s143_win.show()
 app.processEvents()
@@ -16545,7 +16549,7 @@ def _s147_setup_slots(dock, paths):
         dock._slots[i]["preset_path"] = None
 
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s147_win = scaffold.MainWindow()
 _s147_win.show()
 app.processEvents()
@@ -16820,7 +16824,7 @@ _s147_win.close()
 _s147_win.deleteLater()
 app.processEvents()
 shutil.rmtree(_s147_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -18614,7 +18618,7 @@ _s152_tool = {
 _s152_path = os.path.join(_s152_tmpdir, "tool_152.json")
 Path(_s152_path).write_text(json.dumps(_s152_tool))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s152_win = scaffold.MainWindow()
 _s152_win.show()
 app.processEvents()
@@ -18663,7 +18667,7 @@ _s153_tool = {
 _s153_path = os.path.join(_s153_tmpdir, "tool_153.json")
 Path(_s153_path).write_text(json.dumps(_s153_tool))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s153_win = scaffold.MainWindow()
 _s153_win.show()
 app.processEvents()
@@ -18733,7 +18737,7 @@ _s154_tool = {
 _s154_path = os.path.join(_s154_tmpdir, "tool_154.json")
 Path(_s154_path).write_text(json.dumps(_s154_tool))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s154_win = scaffold.MainWindow()
 _s154_win.show()
 app.processEvents()
@@ -18912,7 +18916,7 @@ _s156_tool = {
 _s156_path = os.path.join(_s156_tmpdir, "tool_156.json")
 Path(_s156_path).write_text(json.dumps(_s156_tool))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 # 156a: extract_captures should accept "stdout_tail" as a valid source
 # and return the last 64KB of stdout (same as current stdout_full behavior).
@@ -18934,7 +18938,7 @@ _s156_slot_data = [{
     "delay": 0,
     "captures": [{"name": "fullout", "source": "stdout_full", "pattern": "", "group": 0}],
 }]
-_s156_settings = QSettings("Scaffold", "Scaffold")
+_s156_settings = scaffold._create_settings()
 _s156_settings.setValue("cascade/slots", json.dumps(_s156_slot_data))
 
 _s156_win = scaffold.MainWindow()
@@ -18949,7 +18953,7 @@ check(_s156_loaded_source == "stdout_tail",
 
 # Cleanup section 156
 _s156_win._save_cascade_history([])
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s156_win.close()
 _s156_win.deleteLater()
 app.processEvents()
@@ -19046,7 +19050,7 @@ _s158_tool = {
 _s158_path = os.path.join(_s158_tmpdir, "tool_158.json")
 Path(_s158_path).write_text(json.dumps(_s158_tool))
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s158_win = scaffold.MainWindow()
 _s158_win.show()
 app.processEvents()
@@ -19398,7 +19402,7 @@ _s162_path_b = os.path.join(_s162_tmpdir, "s162_tool_b.json")
 Path(_s162_path_a).write_text(json.dumps(_s162_tool_a), encoding="utf-8")
 Path(_s162_path_b).write_text(json.dumps(_s162_tool_b), encoding="utf-8")
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s162_win = scaffold.MainWindow()
 _s162_win.show()
 app.processEvents()
@@ -19507,7 +19511,7 @@ _s163_preset = {
 _s163_preset_path = os.path.join(_s163_tmpdir, "s163_preset.json")
 Path(_s163_preset_path).write_text(json.dumps(_s163_preset), encoding="utf-8")
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s163_win = scaffold.MainWindow()
 _s163_win.show()
 app.processEvents()
@@ -20663,6 +20667,7 @@ scaffold._set_custom_paths([])
 print("\n  -- 166.8: portable mode interaction --")
 
 scaffold._set_custom_paths([])
+_s166_8_saved_settings_file = os.environ.pop("SCAFFOLD_SETTINGS_FILE")  # this block checks portable/native mode
 
 _s166_8_script_dir = Path(scaffold.__file__).parent
 _s166_8_portable_file = _s166_8_script_dir / "portable.txt"
@@ -20750,6 +20755,8 @@ else:
                     _s166_8_f.unlink()
             except OSError:
                 pass
+
+os.environ["SCAFFOLD_SETTINGS_FILE"] = _s166_8_saved_settings_file
 
 # Sanity: the sentinel files must be gone even if cleanup ran
 check(not _s166_8_portable_file.exists(),
@@ -20978,7 +20985,7 @@ _s167_tool = {
 _s167_path = os.path.join(_s167_tmpdir, "tool_167.json")
 Path(_s167_path).write_text(json.dumps(_s167_tool), encoding="utf-8")
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s167_win = scaffold.MainWindow()
 _s167_win.show()
 app.processEvents()
@@ -21080,7 +21087,7 @@ _s167_win.close()
 _s167_win.deleteLater()
 app.processEvents()
 shutil.rmtree(_s167_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
@@ -21576,7 +21583,7 @@ print("\n=== SECTION 174: Cascade chain-button compact-QSS regression guard ==="
 
 # Clear any cascade state from prior runs so _load_cascade doesn't
 # resurrect a loop_enabled=True from a previous test session.
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 _s174_win = scaffold.MainWindow()
 app.processEvents()
@@ -22227,7 +22234,7 @@ shutil.rmtree(_s177_tmpdir, ignore_errors=True)
 print("\n=== SECTION 178: Cascade halts on preset _schema_hash mismatch ===")
 # =====================================================================
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s178_tmpdir = Path(tempfile.mkdtemp(prefix="s178_"))
 
 
@@ -22417,14 +22424,14 @@ _s178_win.close()
 _s178_win.deleteLater()
 app.processEvents()
 shutil.rmtree(_s178_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 
 
 # =====================================================================
 print("\n=== SECTION 179: v2.9.4 characterization — cascade/data-layer/extra_flags ===")
 # =====================================================================
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s179_tmpdir = Path(tempfile.mkdtemp(prefix="s179_"))
 
 
@@ -22490,7 +22497,7 @@ print("\n--- T1: regex Pool OSError → chain halts cleanly ---")
 # Belt-and-suspenders: scrub session/last_tool before the fresh MainWindow
 # is created so __init__'s auto-load path can't reuse state left by a
 # prior section. The matching teardown is in the finally block.
-QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+scaffold._create_settings().remove("session/last_tool")
 
 scaffold._reset_regex_pool()
 scaffold._regex_pool = None
@@ -22543,8 +22550,8 @@ finally:
     _s179_t1_win.close()
     _s179_t1_win.deleteLater()
     app.processEvents()
-    QSettings("Scaffold", "Scaffold").remove("cascade")
-    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+    scaffold._create_settings().remove("cascade")
+    scaffold._create_settings().remove("session/last_tool")
 
 
 # ---------------------------------------------------------------
@@ -22554,7 +22561,7 @@ print("\n--- T2: extract_captures RuntimeError → chain halts cleanly ---")
 
 # Belt-and-suspenders: scrub session/last_tool before MainWindow construction
 # so __init__ cannot auto-load a tool left behind by T1 or earlier sections.
-QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+scaffold._create_settings().remove("session/last_tool")
 
 _s179_orig_extract = scaffold.extract_captures
 
@@ -22602,8 +22609,8 @@ finally:
     _s179_t2_win.close()
     _s179_t2_win.deleteLater()
     app.processEvents()
-    QSettings("Scaffold", "Scaffold").remove("cascade")
-    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+    scaffold._create_settings().remove("cascade")
+    scaffold._create_settings().remove("session/last_tool")
 
 
 # ---------------------------------------------------------------
@@ -22669,7 +22676,7 @@ finally:
 # ---------------------------------------------------------------
 print("\n--- T4: corrupted cascade/slots → reset + warn ---")
 
-_s179_t4_settings = QSettings("Scaffold", "Scaffold")
+_s179_t4_settings = scaffold._create_settings()
 _s179_t4_settings.setValue("cascade/slots", "not valid json {{")
 _s179_t4_settings.sync()
 
@@ -22695,7 +22702,7 @@ with _patch_stderr() as buf:
             _s179_t4_win.close()
             _s179_t4_win.deleteLater()
             app.processEvents()
-        QSettings("Scaffold", "Scaffold").remove("cascade")
+        scaffold._create_settings().remove("cascade")
 
 
 # ---------------------------------------------------------------
@@ -22703,7 +22710,7 @@ with _patch_stderr() as buf:
 # ---------------------------------------------------------------
 print("\n--- T5: corrupted cascade/variables → reset + warn ---")
 
-_s179_t5_settings = QSettings("Scaffold", "Scaffold")
+_s179_t5_settings = scaffold._create_settings()
 _s179_t5_settings.setValue("cascade/variables", "{{ broken json")
 _s179_t5_settings.sync()
 
@@ -22727,7 +22734,7 @@ with _patch_stderr() as buf:
             _s179_t5_win.close()
             _s179_t5_win.deleteLater()
             app.processEvents()
-        QSettings("Scaffold", "Scaffold").remove("cascade")
+        scaffold._create_settings().remove("cascade")
 
 
 # ---------------------------------------------------------------
@@ -22735,7 +22742,7 @@ with _patch_stderr() as buf:
 # ---------------------------------------------------------------
 print("\n--- T6: corrupted custom_paths → CustomPathDialog warns ---")
 
-_s179_t6_settings = QSettings("Scaffold", "Scaffold")
+_s179_t6_settings = scaffold._create_settings()
 _s179_t6_settings.setValue("custom_paths", "this is not json at all")
 _s179_t6_settings.sync()
 
@@ -22753,7 +22760,7 @@ with _patch_stderr() as buf:
         _s179_t6_dlg.deleteLater()
         app.processEvents()
     finally:
-        QSettings("Scaffold", "Scaffold").remove("custom_paths")
+        scaffold._create_settings().remove("custom_paths")
 
 
 # ---------------------------------------------------------------
@@ -22811,7 +22818,7 @@ finally:
     _s179_t7_win.close()
     _s179_t7_win.deleteLater()
     app.processEvents()
-    QSettings("Scaffold", "Scaffold").remove("cascade")
+    scaffold._create_settings().remove("cascade")
 
 
 # ---------------------------------------------------------------
@@ -22878,7 +22885,7 @@ finally:
     _s179_t8_win.close()
     _s179_t8_win.deleteLater()
     app.processEvents()
-    QSettings("Scaffold", "Scaffold").remove("cascade")
+    scaffold._create_settings().remove("cascade")
 
 
 # ---------------------------------------------------------------
@@ -22941,7 +22948,7 @@ def _s179_run_cascade_capture_argv(step1_captures, fake_extract_result,
         win.close()
         win.deleteLater()
         app.processEvents()
-        QSettings("Scaffold", "Scaffold").remove("cascade")
+        scaffold._create_settings().remove("cascade")
     return captured_argvs, finish, status, state
 
 
@@ -23159,7 +23166,7 @@ _s179_t16_p2 = _s179_write_preset(
     "t16_p2.json", "pass", n_value="step2val"
 )
 
-QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+scaffold._create_settings().remove("session/last_tool")
 _s179_t16_win = scaffold.MainWindow()
 _s179_t16_win.show()
 app.processEvents()
@@ -23202,7 +23209,7 @@ finally:
     _s179_t16_win.close()
     _s179_t16_win.deleteLater()
     app.processEvents()
-    QSettings("Scaffold", "Scaffold").remove("cascade")
+    scaffold._create_settings().remove("cascade")
 
 check(len(_s179_t16_argvs) == 2,
       f"T16: both steps reached _on_run_stop (got {len(_s179_t16_argvs)})")
@@ -23345,8 +23352,8 @@ check(len(_s179_t18b_argvs) >= 2 and "hello" in _s179_t18b_argvs[1],
 
 # Cleanup section 179
 shutil.rmtree(_s179_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
-QSettings("Scaffold", "Scaffold").remove("custom_paths")
+scaffold._create_settings().remove("cascade")
+scaffold._create_settings().remove("custom_paths")
 # T8 may install a stale oversized cascade pre-fix; remove if present.
 # Also remove legacy "t8_oversized.json" from earlier T8 iterations.
 for _s179_t8_name in ("t8_rejectme.json", "t8_oversized.json"):
@@ -23377,8 +23384,8 @@ print("\n=== SECTION 180: multi-subcommand same-tool cascade snapshot overlay ==
 # and elevation=False, producing argv [..., "alpha", "--alpha-flag",
 # "A_VALUE"] instead of [..., "beta", "--beta-flag", "B_VALUE"].
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
-QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+scaffold._create_settings().remove("cascade")
+scaffold._create_settings().remove("session/last_tool")
 _s180_tmpdir = Path(tempfile.mkdtemp(prefix="s180_"))
 
 _s180_tool_data = {
@@ -23482,8 +23489,8 @@ finally:
     _s180_win.close()
     _s180_win.deleteLater()
     app.processEvents()
-    QSettings("Scaffold", "Scaffold").remove("cascade")
-    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+    scaffold._create_settings().remove("cascade")
+    scaffold._create_settings().remove("session/last_tool")
 
 check(len(_s180_argvs) == 2,
       f"180a: both steps reached _on_run_stop (got {len(_s180_argvs)})")
@@ -23534,8 +23541,8 @@ else:
 
 # Cleanup section 180
 shutil.rmtree(_s180_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
-QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+scaffold._create_settings().remove("cascade")
+scaffold._create_settings().remove("session/last_tool")
 
 
 # =====================================================================
@@ -23558,8 +23565,8 @@ print("\n=== SECTION 181: _read_user_json size-cap regression at remaining call 
 # and asserts the rejection took effect (no install / no apply / no
 # write) and the user was informed (status bar or QMessageBox).
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
-QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+scaffold._create_settings().remove("cascade")
+scaffold._create_settings().remove("session/last_tool")
 _s181_tmpdir = Path(tempfile.mkdtemp(prefix="s181_"))
 
 
@@ -23659,7 +23666,7 @@ finally:
     _s181a_win.close()
     _s181a_win.deleteLater()
     app.processEvents()
-    QSettings("Scaffold", "Scaffold").remove("cascade")
+    scaffold._create_settings().remove("cascade")
 
 
 # ---------------------------------------------------------------
@@ -23711,7 +23718,7 @@ finally:
     # PresetPicker writes to favorites/<tool_name> in QSettings during
     # __init__ → _save_favorites if any pruning happens. Always remove
     # the key to keep user QSettings clean.
-    QSettings("Scaffold", "Scaffold").remove("favorites/s181_tool")
+    scaffold._create_settings().remove("favorites/s181_tool")
 
 
 # ---------------------------------------------------------------
@@ -23763,15 +23770,15 @@ finally:
     _s181c_win.close()
     _s181c_win.deleteLater()
     app.processEvents()
-    QSettings("Scaffold", "Scaffold").remove("cascade")
-    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+    scaffold._create_settings().remove("cascade")
+    scaffold._create_settings().remove("session/last_tool")
 
 
 # Cleanup section 181
 shutil.rmtree(_s181_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
-QSettings("Scaffold", "Scaffold").remove("session/last_tool")
-QSettings("Scaffold", "Scaffold").remove("favorites/s181_tool")
+scaffold._create_settings().remove("cascade")
+scaffold._create_settings().remove("session/last_tool")
+scaffold._create_settings().remove("favorites/s181_tool")
 # Defensive: 181a stubs the dialog and writes the oversized cascade
 # only to tmpdir, so nothing should land in the real cascades dir. If a
 # future refactor changes that, this catches the leak.
@@ -23812,8 +23819,8 @@ print("\n=== SECTION 182: cascade-side malformed preset rejection ===")
 # file). Truncated-JSON (V6) errors cleanly through the existing
 # JSONDecodeError branch and does not need new coverage.
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
-QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+scaffold._create_settings().remove("cascade")
+scaffold._create_settings().remove("session/last_tool")
 _s182_tmpdir = Path(tempfile.mkdtemp(prefix="s182_"))
 
 _s182_tool_data = {
@@ -23884,8 +23891,8 @@ finally:
     _s182_t1_win.close()
     _s182_t1_win.deleteLater()
     app.processEvents()
-    QSettings("Scaffold", "Scaffold").remove("cascade")
-    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+    scaffold._create_settings().remove("cascade")
+    scaffold._create_settings().remove("session/last_tool")
 
 
 # ---------------------------------------------------------------
@@ -23924,8 +23931,8 @@ finally:
     _s182_t2_win.close()
     _s182_t2_win.deleteLater()
     app.processEvents()
-    QSettings("Scaffold", "Scaffold").remove("cascade")
-    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+    scaffold._create_settings().remove("cascade")
+    scaffold._create_settings().remove("session/last_tool")
 
 
 # ---------------------------------------------------------------
@@ -23958,8 +23965,8 @@ finally:
     _s182_t3_win.close()
     _s182_t3_win.deleteLater()
     app.processEvents()
-    QSettings("Scaffold", "Scaffold").remove("cascade")
-    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+    scaffold._create_settings().remove("cascade")
+    scaffold._create_settings().remove("session/last_tool")
 
 
 # ---------------------------------------------------------------
@@ -23975,7 +23982,7 @@ def _s182_run_cascade_with_malformed_step2(malformed_preset_path):
     """
     p1 = _s182_write_preset("t45_p1.json", code="import sys; sys.stdout.write('READY\\n')")
 
-    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+    scaffold._create_settings().remove("session/last_tool")
     win = scaffold.MainWindow()
     win.show()
     app.processEvents()
@@ -24015,8 +24022,8 @@ def _s182_run_cascade_with_malformed_step2(malformed_preset_path):
         win.close()
         win.deleteLater()
         app.processEvents()
-        QSettings("Scaffold", "Scaffold").remove("cascade")
-        QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+        scaffold._create_settings().remove("cascade")
+        scaffold._create_settings().remove("session/last_tool")
 
     return finish, status, stderr_text, step2_reached[0]
 
@@ -24068,8 +24075,8 @@ check("cascade stopped" in _s182_t5_status
 
 # Cleanup section 182
 shutil.rmtree(_s182_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
-QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+scaffold._create_settings().remove("cascade")
+scaffold._create_settings().remove("session/last_tool")
 
 
 # =====================================================================
@@ -24089,8 +24096,8 @@ print("\n=== SECTION 183: schema-hash warning on cascade slot click (F14) ===")
 # T4 — precedence: stale-hash message wins over password-not-restored
 #      (mirrors _on_load_preset's if/elif ordering).
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
-QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+scaffold._create_settings().remove("cascade")
+scaffold._create_settings().remove("session/last_tool")
 _s183_tmpdir = Path(tempfile.mkdtemp(prefix="s183_"))
 
 # Tool without a password arg: used by T1, T2, T3 so had_pw is False and
@@ -24174,8 +24181,8 @@ def _s183_click_slot(tool_path, preset_path):
         win.close()
         win.deleteLater()
         app.processEvents()
-        QSettings("Scaffold", "Scaffold").remove("cascade")
-        QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+        scaffold._create_settings().remove("cascade")
+        scaffold._create_settings().remove("session/last_tool")
     return status, stderr_text, c_val
 
 
@@ -24273,8 +24280,8 @@ check(
 
 # Cleanup section 183
 shutil.rmtree(_s183_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("cascade")
-QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+scaffold._create_settings().remove("cascade")
+scaffold._create_settings().remove("session/last_tool")
 
 
 # =====================================================================
@@ -24458,7 +24465,7 @@ app.processEvents()
 
 # Cleanup section 184
 shutil.rmtree(_s184_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+scaffold._create_settings().remove("session/last_tool")
 
 
 # =====================================================================
@@ -24753,7 +24760,7 @@ app.processEvents()
 
 # Cleanup section 185
 shutil.rmtree(_s185_tmpdir, ignore_errors=True)
-QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+scaffold._create_settings().remove("session/last_tool")
 
 
 # =====================================================================
@@ -27923,6 +27930,7 @@ check(_s205_cascades.is_dir(),
 # ---------------------------------------------------------------------
 # D. _create_settings() with no portable.txt returns native QSettings
 # ---------------------------------------------------------------------
+_s205_saved_settings_file = os.environ.pop("SCAFFOLD_SETTINGS_FILE")  # this block checks portable/native mode
 _s205_portable_txt = _s205_root / "portable.txt"
 _s205_portable_ini = _s205_root / "scaffold.ini"
 # Sanity guard — refuse to test if the dev tree already has these
@@ -27957,6 +27965,8 @@ else:
             _s205_portable_txt.unlink()
         if _s205_portable_ini.exists():
             _s205_portable_ini.unlink()
+
+os.environ["SCAFFOLD_SETTINGS_FILE"] = _s205_saved_settings_file
 
 # Sanity: sentinels must be gone after E even if cleanup ran
 check(not _s205_portable_txt.exists(),
@@ -29479,7 +29489,7 @@ check(QMessageBox.question is _s209_orig_qmb_quest,
 # 209H: State isolation (QSettings not polluted)
 # ---------------------------------------------------------------------
 
-_s209_settings = QSettings("Scaffold", "Scaffold")
+_s209_settings = scaffold._create_settings()
 
 # Capture baseline state of keys we care about
 _s209_keys_to_check = (
@@ -29719,7 +29729,7 @@ shutil.rmtree(_s210_tmpdir, ignore_errors=True)
 # Match §209's defensive clear of session/last_tool: in-process main() calls
 # construct MainWindow inside the runner which can mutate this key during
 # cascade execution, and a kill mid-section could leak a fixture path.
-_s210_settings = QSettings("Scaffold", "Scaffold")
+_s210_settings = scaffold._create_settings()
 _s210_settings.remove("session/last_tool")
 _s210_settings.sync()
 app.processEvents()
@@ -30531,7 +30541,7 @@ _s214_ok_a = _s214_make_tool("tool_s214_ok_a", "python", "pass")
 _s214_ok_b = _s214_make_tool("tool_s214_ok_b", "python", "pass")
 _s214_ok_c = _s214_make_tool("tool_s214_ok_c", "python", "pass")
 
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s214_win = scaffold.MainWindow()
 _s214_win.show()
 app.processEvents()
@@ -30753,7 +30763,7 @@ _s214_win.deleteLater()
 app.processEvents()
 scaffold.MainWindow._suppress_welcome_dialog = _s214_saved_suppress
 shutil.rmtree(_s214_tmpdir, ignore_errors=True)
-_s214_qs = QSettings("Scaffold", "Scaffold")
+_s214_qs = scaffold._create_settings()
 _s214_qs.remove("cascade")
 _s214_qs.remove("cascade_history")
 for _s214_name in ("tool_s214_bad", "tool_s214_ok_a", "tool_s214_ok_b", "tool_s214_ok_c"):
@@ -31019,8 +31029,8 @@ try:
         _s215_close(_s215_win2)
 finally:
     _s215_close(_s215_win)
-    QSettings("Scaffold", "Scaffold").remove("timeout/s215_py")
-    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+    scaffold._create_settings().remove("timeout/s215_py")
+    scaffold._create_settings().remove("session/last_tool")
     shutil.rmtree(_s215_tmpdir, ignore_errors=True)
     _cleanup_recovery_files()
 
@@ -31033,7 +31043,7 @@ print("\n--- Section 216: Import atomicity, recovery/geometry/vars input hardeni
 import subprocess as _s216_subprocess
 
 _s216_tmpdir = tempfile.mkdtemp(prefix="scaffold_test216_")
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 _s216_win = scaffold.MainWindow()
 _s216_dock = _s216_win.cascade_dock
 app.processEvents()
@@ -31156,7 +31166,7 @@ check(_s216_proc.returncode != 0 and "Traceback" not in _s216_proc.stderr,
 _s216_win.close()
 _s216_win.deleteLater()
 app.processEvents()
-QSettings("Scaffold", "Scaffold").remove("cascade")
+scaffold._create_settings().remove("cascade")
 shutil.rmtree(_s216_tmpdir, ignore_errors=True)
 
 
@@ -31247,7 +31257,7 @@ finally:
     _s217_win.close()
     _s217_win.deleteLater()
     app.processEvents()
-    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+    scaffold._create_settings().remove("session/last_tool")
     shutil.rmtree(_s217_tmpdir, ignore_errors=True)
 
 
@@ -31285,7 +31295,7 @@ def _s218_preset(name, schema_hash_value):
 
 def _s218_run_chain(preset_path):
     """Run a one-step cascade and return (finish_status, status_message)."""
-    QSettings("Scaffold", "Scaffold").remove("cascade")
+    scaffold._create_settings().remove("cascade")
     win = scaffold.MainWindow()
     dock = win.cascade_dock
     app.processEvents()
@@ -31307,8 +31317,8 @@ def _s218_run_chain(preset_path):
     win.close()
     win.deleteLater()
     app.processEvents()
-    QSettings("Scaffold", "Scaffold").remove("cascade")
-    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+    scaffold._create_settings().remove("cascade")
+    scaffold._create_settings().remove("session/last_tool")
     return status, " | ".join(m for m in messages if m), out
 
 
@@ -31352,7 +31362,7 @@ try:
     check(f'"{scaffold.PRESET_HASH_UNKNOWN}"' in _s218_prompt,
           "218e: PRESET_HASH_UNKNOWN matches the placeholder PRESET_PROMPT.txt tells LLMs to use")
 finally:
-    QSettings("Scaffold", "Scaffold").remove("session/last_tool")
+    scaffold._create_settings().remove("session/last_tool")
     shutil.rmtree(_s218_tmpdir, ignore_errors=True)
 
 
@@ -32515,6 +32525,39 @@ for _s232_dark in (False, True):
     _s232_win.deleteLater()
     app.processEvents()
 scaffold.apply_theme(False)
+
+
+# =====================================================================
+# Section 233
+# =====================================================================
+print("\n--- Section 233: SCAFFOLD_SETTINGS_FILE redirects settings ---")
+
+# The test suites (and anyone wanting a throwaway profile) point settings
+# at an INI file instead of the registry / ~/.config / Preferences.
+_s233_saved = os.environ.get("SCAFFOLD_SETTINGS_FILE")
+_s233_dir = Path(tempfile.mkdtemp(prefix="s233_"))
+_s233_ini = _s233_dir / "custom.ini"
+os.environ["SCAFFOLD_SETTINGS_FILE"] = str(_s233_ini)
+try:
+    _s233_s = scaffold._create_settings()
+    check(_s233_s.format() == QSettings.Format.IniFormat,
+          "233a: settings use INI format when SCAFFOLD_SETTINGS_FILE is set")
+    check(Path(_s233_s.fileName()) == _s233_ini,
+          f"233b: settings live in the named file (got {_s233_s.fileName()})")
+    _s233_s.setValue("t233/v", "x")
+    _s233_s.sync()
+    check(_s233_ini.exists() and "t233" in _s233_ini.read_text(encoding="utf-8"),
+          "233c: values are written to that file")
+finally:
+    if _s233_saved is None:
+        os.environ.pop("SCAFFOLD_SETTINGS_FILE", None)
+    else:
+        os.environ["SCAFFOLD_SETTINGS_FILE"] = _s233_saved
+    shutil.rmtree(_s233_dir, ignore_errors=True)
+
+check(os.environ.get("SCAFFOLD_SETTINGS_FILE", "").endswith(".ini")
+      and "scaffold_test_settings_" in os.environ.get("SCAFFOLD_SETTINGS_FILE", ""),
+      "233d: this suite runs with its own throwaway settings file")
 
 
 # =====================================================================

@@ -7,6 +7,8 @@ All notable changes to Scaffold are documented here.
 
 ### Added
 
+- **`SCAFFOLD_SETTINGS_FILE` environment variable.** When set, Scaffold keeps its settings in that INI file instead of the registry, `~/.config/Scaffold` or the macOS preferences. It takes precedence over portable mode.
+- **The test suites no longer touch your real settings.** Every suite imports `_test_settings.py`, which points `SCAFFOLD_SETTINGS_FILE` at a throwaway file that is deleted at exit. Before this, running the tests on your own machine cleared your cascade slots and custom PATH folders and added test runs to your history. A full run now leaves the registry byte-for-byte unchanged. Covered by `test_functional.py` §233.
 - **Form labels show the real CLI flag** under each field name (e.g. `-sL`, or `-p, --ports` when there is a short flag), in small monospace. Positional arguments are left out, since their `flag` is only a placeholder. The flag and name are HTML-escaped. Covered by `test_functional.py` §221.
 - **The Output header shows the last run's result**: a colored pill (`exit 0`, `exit 2`, `stopped`, `timed out`, `crashed`, `failed to start`, ...) plus run time and the number of output lines. Clear Output hides it. Covered by §222.
 

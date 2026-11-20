@@ -3663,11 +3663,16 @@ def _resolve_app_relative(rel_path: str) -> Path | None:
 def _create_settings() -> QSettings:
     """Return a QSettings using local INI file (portable) or system registry (default).
 
-    If portable.txt or scaffold.ini exists next to this script, settings are stored
-    in scaffold.ini (INI format) for fully isolated portable operation. Even in
-    installed mode we use native QSettings — settings are OS-managed, not stored
-    alongside user-data files.
+    If the SCAFFOLD_SETTINGS_FILE environment variable is set, settings are
+    stored in that INI file; the test suites use this to stay off the user's
+    real settings. Otherwise, if portable.txt or scaffold.ini exists next to
+    this script, settings are stored in scaffold.ini (INI format) for fully
+    isolated portable operation. Even in installed mode we use native
+    QSettings — settings are OS-managed, not stored alongside user-data files.
     """
+    override = os.environ.get("SCAFFOLD_SETTINGS_FILE")
+    if override:
+        return QSettings(override, QSettings.Format.IniFormat)
     if _is_portable_mode():
         script_dir = Path(__file__).parent
         return QSettings(str(script_dir / "scaffold.ini"), QSettings.Format.IniFormat)
