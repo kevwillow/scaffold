@@ -3,7 +3,9 @@
 All notable changes to Scaffold are documented here.
 
 
-## [Unreleased]
+## [v2.14.0] — 2026-11-20
+
+New light and dark themes, the real CLI flag under every field name, a run summary in the Output header, and fixes from a full security and bug audit of `scaffold.py`. Every behavioral fix has a regression check that failed before the fix (`test_functional.py` §221 to §233, `test_security.py` §13 and §14). This release also ships everything listed under v2.13.2 below, which was never released on its own.
 
 ### Added
 
@@ -44,7 +46,7 @@ All notable changes to Scaffold are documented here.
 - **Output search keeps up with new output.** Matches were found only when the search text changed. Output that arrived afterwards wasn't counted, and once old lines were trimmed off the top every highlight landed on the wrong text. An open search is now recomputed whenever output is flushed, without scrolling away from the newest lines. The show/hide check for the search bar also no longer copies the whole output panel on every 100 ms flush. Covered by `test_functional.py` §231.
 - **Clear, Copy and Save Output no longer clip their labels in a narrow window.** Their minimum width was the text width plus a fixed 24 px, less than the new theme's button padding, so a narrow window showed "Clear Outpu". They now size from the theme itself. Covered by `test_functional.py` §232.
 
-## [v2.13.2] — Unreleased
+## [v2.13.2] — not released separately; included in v2.14.0
 
 Full-codebase rescan: 6 reviewers on disjoint slices of `scaffold.py`, then fixes that were each reproduced against v2.13.1 before changing code. Every behavioral fix has a regression check in new `test_functional.py` sections §211 to §216, and each check was confirmed to fail on v2.13.1. Three v2.13.1 tests that were red on Linux/macOS (§107a to §107c, `test_security` 12b) now pass there.
 
