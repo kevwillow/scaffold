@@ -5,8 +5,8 @@ Scaffold: Your CLI Tools, but with Buttons
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)
 ![Single File](https://img.shields.io/badge/architecture-single%20file-blue)
-![Lines of Code](https://img.shields.io/badge/lines-12%2C200%2B-informational)
-![Tests](https://img.shields.io/badge/tests-4%2C045%20assertions-brightgreen)
+![Lines of Code](https://img.shields.io/badge/lines-12%2C900%2B-informational)
+![Tests](https://img.shields.io/badge/tests-4%2C137%20assertions-brightgreen)
 ![Test Suites](https://img.shields.io/badge/test%20suites-6-brightgreen)
 ![Bundled Tools](https://img.shields.io/badge/bundled%20tools-28%20schemas-orange)
 ![No Shell](https://img.shields.io/badge/shell%3DTrue-never-critical)
@@ -17,7 +17,7 @@ Scaffold turns command-line tools into desktop GUIs. You describe a tool's flags
 
 When a tool fits the flag/positional/subcommand model and the schema describes it accurately, the form ends up nicer to use than the CLI itself. Every flag is on screen, every value has the right type, and bad input gets caught before anything runs. The schema is what makes or breaks that, so the more precise it is, the better the form. Tools that depend on interactive prompts, terminal detection or piped stdin don't fit as well. See [Limitations](#limitations).
 
-Nothing runs through a shell. Every command goes through PySide6's QProcess with its arguments passed as a list, so there's never a command string for anything to parse. Pipes, semicolons and backticks in a schema or in user input stay literal characters, because no shell ever sees them, and an injected `; rm -rf ~` has nothing to run in. The security suite (243 assertions) checks this, and you can run it yourself with `python test_security.py`. Output streams into the app live, a history window keeps past runs, and you can copy or save any output.
+Nothing runs through a shell. Every command goes through PySide6's QProcess with its arguments passed as a list, so there's never a command string for anything to parse. Pipes, semicolons and backticks in a schema or in user input stay literal characters, because no shell ever sees them, and an injected `; rm -rf ~` has nothing to run in. The security suite (271 assertions) checks this, and you can run it yourself with `python test_security.py`. Output streams into the app live, a history window keeps past runs, and you can copy or save any output.
 
 You don't need a famous tool for this to be useful. If your team has a deploy script, a migration tool or a build script with 30 flags nobody remembers, write a schema for it and everyone gets a GUI. Big tools work too. The bundled curl schema has 271 arguments.
 
@@ -45,7 +45,7 @@ It's a single Python file with one dependency (PySide6). There's no telemetry an
 ### Quick install
 
 ```bash
-pip install git+https://github.com/kevwillow/scaffold.git@v2.13.1
+pip install git+https://github.com/kevwillow/scaffold.git@v2.14.0
 ```
 
 This installs `scaffold` as a shell command. Launch the GUI with:
@@ -60,7 +60,7 @@ scaffold
 environment so they don't conflict with your system Python:
 
 ```bash
-pipx install git+https://github.com/kevwillow/scaffold.git@v2.13.1
+pipx install git+https://github.com/kevwillow/scaffold.git@v2.14.0
 ```
 
 ### From source (for development)
@@ -107,6 +107,13 @@ and Scaffold keeps its settings in a local `scaffold.ini` in the script
 folder instead of the system settings store. Good for USB sticks or fully
 isolated installs.
 
+### Settings in a file of your choice
+
+Set the `SCAFFOLD_SETTINGS_FILE` environment variable to the path of an INI
+file and Scaffold keeps its settings there instead. It takes precedence over
+portable mode, and works for pip installs too. It's handy for a throwaway
+profile, and it's how the test suites stay away from your real settings.
+
 ---
 
 ## Getting Started
@@ -134,7 +141,7 @@ python scaffold.py
 
 The tool picker lists every schema it finds, both the bundled ones and anything in your own `tools/` folder, including subfolders. Subfolders show up at the top as collapsible groups. A green checkmark means the tool is installed and ready; a red X means Scaffold couldn't find it on your PATH. Double-click a tool to open its form, fill it in and hit **Run**.
 
-> **Tip:** Toggle dark mode with **Ctrl+D** or from the **View > Theme** menu.
+> **Tip:** Switch between the light and dark themes with **Ctrl+D**, or pick one (or follow your system) under **View > Theme**.
 
 > **Linux note:** On some distros (Ubuntu 24.04 and later), `pip install PySide6` fails because the system Python is externally managed. Use a virtual environment: `python3 -m venv .venv && source .venv/bin/activate && pip install PySide6`. You may also need `sudo apt install libxcb-cursor0` for the Qt platform plugin.
 
@@ -150,7 +157,9 @@ To open a specific tool directly: `python scaffold.py scaffold_data/tools/nmap.j
 - **Typed input constraints**: widgets validate values as you enter them
 - **LLM-powered schema generation**: paste SCHEMA_PROMPT.txt and the tool's docs into an LLM, get a schema back
 - **Syntax-colored command preview**: a live preview with color-coded tokens
-- **Process execution**: run, stop, search the output, copy or save the results
+- **Light and dark themes**: a clean, modern look in both, following your system or set from View > Theme (Ctrl+D)
+- **Flags at a glance**: every field shows the real CLI flag under its name, so the form doubles as a cheat sheet
+- **Process execution**: run, stop, search the output, copy or save the results, with the exit code, run time and line count shown above the output
 - **10 widget types**: checkbox, text, spinbox, dropdown, file picker, password with show/hide, and more
 - **Subcommand support**: multi-level commands like `git clone` or `ansible-galaxy role install`
 - **Command history**: browse and restore past runs per tool (Ctrl+H), with a filter bar
@@ -260,7 +269,7 @@ Every schema's `binary` field is checked when the schema loads. Shell metacharac
 
 Every argument goes through a typed widget that limits what you can enter. A port number comes from a spin box with set bounds instead of a free-text field. Enum values come from a dropdown with a fixed list. Booleans are checkboxes, and files and folders use the native picker dialogs. Most malformed input never happens, because the form won't let you type it.
 
-The **Additional Flags** box is the only free-text path onto the command line. It splits your text with `shlex.split()`, highlights problems like unclosed quotes, and hands the resulting tokens to `QProcess` as separate list items. They're never joined back into a shell string.
+The **Additional Flags** box is the only free-text path onto the command line. It splits your text the way a POSIX shell would (on Windows, backslashes stay literal so paths like `C:\temp\out.txt` work), highlights problems like unclosed quotes, and hands the resulting tokens to `QProcess` as separate list items. They're never joined back into a shell string.
 
 ### No dynamic code execution
 
@@ -275,6 +284,8 @@ Scaffold makes zero network calls. There's no telemetry, no update check, no ana
 - **Atomic writes**: presets, autosave and cascade files are written to a temp file and then renamed into place, so a crash mid-write can't leave a half-written file behind
 - **Password masking**: password values are masked in the command preview, the output panel, history entries and the clipboard, and copying a command that contains a password asks you first
 - **Capture injection guard**: if a cascade capture resolves to something that looks like a flag, Scaffold catches it, and with stop-on-error on it halts the chain so the value can't be read as an option
+- **Batch files on Windows**: Windows runs `.bat` and `.cmd` files through cmd.exe, which re-reads their arguments, so Scaffold refuses arguments to them that contain cmd.exe command characters (`& | < > ^ % ! " ( )`)
+- **File text shown as text**: names and descriptions from schema, preset and cascade files are always displayed literally, never as HTML
 - **Path checks on shared cascade files**: a cascade can't reach outside your Scaffold folders with `..`, and the check treats `\` and `/` the same way, so a file gets the same verdict on Windows, Linux and macOS
 
 ### Verify it yourself
@@ -314,7 +325,7 @@ The preview shows the exact command as you change fields, with the binary, flags
 
 ### Process execution
 
-Run commands right from the GUI. Output is colored, with stdout and stderr in different colors, and you get exit codes and timestamps. The output panel is searchable (Ctrl+Shift+F), and you can copy it or save it to a file. ANSI escape codes are stripped out. Stopping a process sends SIGTERM first and falls back to SIGKILL if it doesn't exit. You can also set an auto-kill timeout per tool.
+Run commands right from the GUI. Output is colored, with stdout and stderr in different colors, and you get exit codes and timestamps. The output panel is searchable (Ctrl+Shift+F), and you can copy it or save it to a file. ANSI escape codes are stripped out. Stopping a process sends SIGTERM first and falls back to SIGKILL if it doesn't exit. You can also set an auto-kill timeout per tool. When a run ends, the Output header shows how it went: the exit code (or stopped, timed out or crashed), how long it ran and how many lines it printed.
 
 ### 10 widget types
 
@@ -397,7 +408,7 @@ The main use is script-based tools. Write a schema with `"binary": "myscript.py"
 | **Ctrl+R** | Reload current tool |
 | **Ctrl+F** | Focus field search bar |
 | **Ctrl+Shift+F** | Search within output panel |
-| **Ctrl+D** | Toggle dark mode |
+| **Ctrl+D** | Switch between light and dark themes |
 | **Ctrl+G** | Toggle cascade panel |
 | **Ctrl+B** | Tool list |
 | **Ctrl+Q** | Quit |
