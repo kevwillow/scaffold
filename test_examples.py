@@ -27,6 +27,7 @@ from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit
 
 app = QApplication.instance() or QApplication(sys.argv)
 
+import _test_settings  # noqa: F401  (before scaffold: keeps tests off real settings)
 from scaffold import load_tool, validate_tool, normalize_tool, ToolForm, MainWindow, _c
 
 PASSED = 0

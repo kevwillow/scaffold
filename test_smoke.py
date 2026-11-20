@@ -51,6 +51,7 @@ from PySide6.QtCore import Qt, QSettings, QProcess
 app = QApplication.instance() or QApplication(sys.argv)
 
 from PySide6.QtWidgets import QMessageBox
+import _test_settings  # noqa: F401  (before scaffold: keeps tests off real settings)
 import scaffold
 
 # Auto-decline recovery prompts so stale recovery files don't block tests
