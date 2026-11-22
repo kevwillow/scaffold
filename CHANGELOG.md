@@ -3,6 +3,20 @@
 All notable changes to Scaffold are documented here.
 
 
+## [Unreleased]
+
+### Fixed
+
+- **Headless `--run-cascade` no longer writes to per-tool command history.** The README says a headless run writes nothing to history, but each step still saved an entry to `history/<tool>`, so a scheduled job filled the GUI's 50-entry history and pushed real runs out. The runner already kept cascade history untouched; it now suppresses per-tool history writes the same way. Covered by `test_functional.py` §234.
+- **More file-supplied text can no longer render as markup** (follows the v2.14.0 fix). Affected:
+  - cascade variable names in the Cascade Variables dialog, which are now plain text
+  - the preset's `_tool` value in the Tool Mismatch dialogs (loading and importing a preset)
+  - the preset file name in the Invalid Preset dialog (`<` is legal in file names outside Windows)
+  - the Load Error dialog, which quotes the schema file name and read errors
+
+  The dialogs show `<` as `‹`, like the Wrong File Format dialogs. Covered by `test_functional.py` §235.
+
+
 ## [v2.14.0] — 2026-11-20
 
 New light and dark themes, the real CLI flag under every field name, a run summary in the Output header, and fixes from a full security and bug audit of `scaffold.py`. Every behavioral fix has a regression check that failed before the fix (`test_functional.py` §221 to §233, `test_security.py` §13 and §14). This release also ships everything listed under v2.13.2 below, which was never released on its own.
