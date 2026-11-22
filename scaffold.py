@@ -1458,8 +1458,10 @@ def _plain_tooltip(text: str) -> str:
     return f"<p style='white-space: pre-wrap;'>{html.escape(text)}</p>"
 
 
-def _no_markup(value, limit: int = 80) -> str:
+def _no_markup(value, limit: int | None = 80) -> str:
     """Shorten a file-supplied value for a message box and defuse markup.
+
+    Pass ``limit=None`` to keep the whole value.
 
     QMessageBox guesses rich text from a '<' tag, and the static helpers
     can't be switched to plain text, so '<' is shown as a look-alike.
@@ -6015,6 +6017,8 @@ class CascadeHeadlessRunner:
 
         mw._append_cascade_run = patched_append
         mw._update_cascade_run = patched_update
+        # Keep step runs out of the GUI's per-tool history (history/<tool>).
+        mw._record_history_entry = lambda *args, **kwargs: None
         mw.cascade_dock._save_cascade = lambda: None
         # Leave the GUI's crash-recovery files alone: autosave would overwrite
         # them with headless values, and step loads and closeEvent delete them.
@@ -6830,7 +6834,9 @@ class CascadeVariableDialog(QDialog):
                 type_hint = var.get("type_hint", "string")
                 description = var.get("description", "")
                 row_widget = self._build_row(flag, type_hint, description)
-                form.addRow(QLabel(name), row_widget)
+                name_label = QLabel(name)
+                name_label.setTextFormat(Qt.TextFormat.PlainText)
+                form.addRow(name_label, row_widget)
             layout.addLayout(form)
 
         btn_box = QDialogButtonBox(
@@ -11358,7 +11364,7 @@ class MainWindow(QMainWindow):
 
     def _show_load_error(self, msg: str) -> None:
         """Display a warning dialog for tool-load failures."""
-        QMessageBox.warning(self, "Load Error", msg)
+        QMessageBox.warning(self, "Load Error", _no_markup(msg, limit=None))
 
     def _build_form_view(self):
         """Tear down old form widgets and build fresh ones for self.data."""
@@ -11791,7 +11797,7 @@ class MainWindow(QMainWindow):
         if verrors:
             QMessageBox.warning(
                 self, "Invalid Preset",
-                f"Preset '{name}' failed validation:\n"
+                f"Preset '{_no_markup(name, limit=None)}' failed validation:\n"
                 + "\n".join(f"  - {e}" for e in verrors),
             )
             return
@@ -11804,7 +11810,7 @@ class MainWindow(QMainWindow):
         if saved_tool is not None and saved_tool != current_tool:
             btn = QMessageBox.warning(
                 self, "Tool Mismatch",
-                f"This preset was made for {saved_tool!r} but you're loading "
+                f"This preset was made for {_no_markup(repr(saved_tool))} but you're loading "
                 f"it into {current_tool!r}. Flags may not apply correctly.\n\n"
                 f"Load anyway?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
@@ -11923,7 +11929,7 @@ class MainWindow(QMainWindow):
         if saved_tool is not None and saved_tool != current_tool:
             btn = QMessageBox.warning(
                 self, "Tool Mismatch",
-                f"This preset was made for {saved_tool!r} but you're importing "
+                f"This preset was made for {_no_markup(repr(saved_tool))} but you're importing "
                 f"it into {current_tool!r}. Flags may not apply correctly.\n\n"
                 f"Import anyway?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,

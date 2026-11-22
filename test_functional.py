@@ -32561,6 +32561,112 @@ check(os.environ.get("SCAFFOLD_SETTINGS_FILE", "").endswith(".ini")
 
 
 # =====================================================================
+# Section 234
+# =====================================================================
+print("\n--- Section 234: Headless --run-cascade leaves per-tool history alone ---")
+
+# The README promises a headless run writes nothing to history. The runner
+# restored cascade_history/* but each step still saved to history/<tool>,
+# so a scheduled job pushed real runs out of the GUI's 50-entry history.
+_s234_dir = Path(tempfile.mkdtemp(prefix="s234_"))
+_s234_tool = _s234_dir / "hist234.json"
+_s234_tool.write_text(json.dumps({
+    "_format": "scaffold_schema", "tool": "hist234", "binary": "python",
+    "description": "t",
+    "arguments": [{"name": "Code", "flag": "-c", "type": "string",
+                   "required": False, "default": "print('ok')"}],
+}), encoding="utf-8")
+_s234_cascade = _s234_dir / "c234.json"
+_s234_cascade.write_text(json.dumps({
+    "_format": "scaffold_cascade", "name": "c234", "description": "t",
+    "loop_mode": False, "stop_on_error": False, "variables": [],
+    "steps": [{"tool": str(_s234_tool), "preset": None, "delay": 0, "captures": []}] * 2,
+}), encoding="utf-8")
+_s234_s = scaffold._create_settings()
+_s234_s.remove("history/hist234")
+_s234_s.sync()
+with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+    _s234_rc = scaffold.CascadeHeadlessRunner(str(_s234_cascade), {}, 1, None).run()
+check(_s234_rc == 0, f"234a: the two-step headless run succeeds (rc={_s234_rc})")
+_s234_s = scaffold._create_settings()
+_s234_s.sync()
+check(not _s234_s.contains("history/hist234"),
+      f"234b: no history/<tool> entry is written (got {_s234_s.value('history/hist234')!r})")
+shutil.rmtree(_s234_dir, ignore_errors=True)
+
+
+# =====================================================================
+# Section 235
+# =====================================================================
+print("\n--- Section 235: More file-supplied text can't render as rich text ---")
+
+# Follows §227. A cascade variable name labels a QFormLayout row, and preset
+# _tool values and file names go into message boxes; Qt guesses rich text
+# for all of them, so an <img> or <a> could load local images or spoof text.
+from PySide6.QtWidgets import QFileDialog
+_s235_dlg = scaffold.CascadeVariableDialog(
+    [{"name": "<b>v</b>", "flag": "v", "type_hint": "string", "apply_to": "all"}])
+_s235_lbl = [w for w in _s235_dlg.findChildren(QLabel) if w.text() == "<b>v</b>"]
+check(len(_s235_lbl) == 1 and _s235_lbl[0].textFormat() == Qt.TextFormat.PlainText,
+      "235a: a cascade variable's name label is plain text")
+_s235_dlg.deleteLater()
+
+_s235_dir = Path(tempfile.mkdtemp(prefix="s235_"))
+_s235_schema = _s235_dir / "t235.json"
+_s235_schema.write_text(json.dumps({
+    "tool": "t235", "binary": "t235", "description": "d",
+    "arguments": [{"name": "V", "flag": "--v", "type": "boolean"}],
+}), encoding="utf-8")
+_s235_preset = _s235_dir / "p235.json"
+_s235_preset.write_text(json.dumps({
+    "_format": "scaffold_preset", "_tool": "<img src='x'>",
+}), encoding="utf-8")
+_s235_win = scaffold.MainWindow(tool_path=str(_s235_schema))
+app.processEvents()
+
+_s235_msgs = []
+_s235_saved_warn = QMessageBox.warning
+_s235_saved_open = QFileDialog.getOpenFileName
+
+
+def _s235_warn(*a, **kw):
+    _s235_msgs.append(a[2] if len(a) > 2 else kw.get("text", ""))
+    return QMessageBox.StandardButton.Cancel
+
+
+QMessageBox.warning = staticmethod(_s235_warn)
+QFileDialog.getOpenFileName = staticmethod(lambda *a, **kw: (str(_s235_preset), ""))
+try:
+    _s235_win._apply_preset_from_path(str(_s235_preset))
+    check(len(_s235_msgs) == 1 and "<img" not in _s235_msgs[0],
+          f"235b: the Tool Mismatch message on load carries no markup ({_s235_msgs!r})")
+    _s235_msgs.clear()
+    _s235_win._on_import_preset()
+    check(len(_s235_msgs) == 1 and "<img" not in _s235_msgs[0],
+          f"235c: the Tool Mismatch message on import carries no markup ({_s235_msgs!r})")
+    _s235_msgs.clear()
+    _s235_win._show_load_error("<b>bad.json</b> could not be read:\n  - x")
+    check(len(_s235_msgs) == 1 and "<b>" not in _s235_msgs[0] and "x" in _s235_msgs[0],
+          f"235d: the Load Error message carries no markup ({_s235_msgs!r})")
+    if sys.platform != "win32":
+        # '<' and '>' are legal in file names outside Windows.
+        _s235_odd = _s235_dir / "<b>odd</b>.json"
+        _s235_odd.write_text(json.dumps({"_format": "scaffold_preset", "--v": "notbool"}),
+                             encoding="utf-8")
+        _s235_msgs.clear()
+        _s235_win._apply_preset_from_path(str(_s235_odd))
+        check(len(_s235_msgs) == 1 and "<b>" not in _s235_msgs[0],
+              f"235e: the Invalid Preset message carries no markup ({_s235_msgs!r})")
+finally:
+    QMessageBox.warning = _s235_saved_warn
+    QFileDialog.getOpenFileName = _s235_saved_open
+_s235_win.close()
+_s235_win.deleteLater()
+app.processEvents()
+shutil.rmtree(_s235_dir, ignore_errors=True)
+
+
+# =====================================================================
 # Final cleanup
 # =====================================================================
 shutil.rmtree(_s200_tmpdir, ignore_errors=True)
