@@ -4202,7 +4202,7 @@ class ToolPicker(QWidget):
                 elif available:
                     status_item = QTableWidgetItem("\u2714")  # checkmark
                     status_item.setForeground(QColor(_c("success")))
-                    status_item.setToolTip(f"'{data['binary']}' found in PATH — ready to use")
+                    status_item.setToolTip(f"'{html.escape(data['binary'])}' found in PATH — ready to use")
                 else:
                     status_item = QTableWidgetItem("\u2716")  # X mark
                     status_item.setForeground(QColor(_c("error")))
@@ -4886,7 +4886,7 @@ class PresetPicker(QDialog):
 
         confirm = QMessageBox.question(
             self, "Confirm Delete",
-            f"Delete preset '{name}'?\n\n"
+            f"Delete preset '{_no_markup(name, limit=None)}'?\n\n"
             "Tip: Bundled presets can be restored with:\n"
             f"  git checkout -- presets/{self.tool_name}/{name}.json",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -6781,7 +6781,7 @@ class CascadeListDialog(QDialog):
 
         confirm = QMessageBox.question(
             self, "Confirm Delete",
-            f"Delete cascade '{name}'?",
+            f"Delete cascade '{_no_markup(name, limit=None)}'?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if confirm != QMessageBox.StandardButton.Yes:
@@ -11483,6 +11483,8 @@ class MainWindow(QMainWindow):
         preview_section.addWidget(preview_widget)
         # Status label
         self.status = QLabel("")
+        # Plain text: it shows schema argument names ("Required: ...").
+        self.status.setTextFormat(Qt.TextFormat.PlainText)
         self.status.setStyleSheet("padding: 0 8px 0 8px;")
         preview_section.addWidget(self.status)
         preview_section_widget = QWidget()
@@ -11945,7 +11947,7 @@ class MainWindow(QMainWindow):
         if dest.exists():
             answer = QMessageBox.question(
                 self, "Overwrite Preset",
-                f"Overwrite existing preset '{name}'?",
+                f"Overwrite existing preset '{_no_markup(name, limit=None)}'?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if answer != QMessageBox.StandardButton.Yes:

@@ -32638,11 +32638,11 @@ QMessageBox.warning = staticmethod(_s235_warn)
 QFileDialog.getOpenFileName = staticmethod(lambda *a, **kw: (str(_s235_preset), ""))
 try:
     _s235_win._apply_preset_from_path(str(_s235_preset))
-    check(len(_s235_msgs) == 1 and "<img" not in _s235_msgs[0],
+    check(len(_s235_msgs) == 1 and "made for" in _s235_msgs[0] and "<img" not in _s235_msgs[0],
           f"235b: the Tool Mismatch message on load carries no markup ({_s235_msgs!r})")
     _s235_msgs.clear()
     _s235_win._on_import_preset()
-    check(len(_s235_msgs) == 1 and "<img" not in _s235_msgs[0],
+    check(len(_s235_msgs) == 1 and "made for" in _s235_msgs[0] and "<img" not in _s235_msgs[0],
           f"235c: the Tool Mismatch message on import carries no markup ({_s235_msgs!r})")
     _s235_msgs.clear()
     _s235_win._show_load_error("<b>bad.json</b> could not be read:\n  - x")
@@ -32650,16 +32650,50 @@ try:
           f"235d: the Load Error message carries no markup ({_s235_msgs!r})")
     if sys.platform != "win32":
         # '<' and '>' are legal in file names outside Windows.
-        _s235_odd = _s235_dir / "<b>odd</b>.json"
+        _s235_odd = _s235_dir / "<b>odd.json"
         _s235_odd.write_text(json.dumps({"_format": "scaffold_preset", "--v": "notbool"}),
                              encoding="utf-8")
         _s235_msgs.clear()
         _s235_win._apply_preset_from_path(str(_s235_odd))
         check(len(_s235_msgs) == 1 and "<b>" not in _s235_msgs[0],
               f"235e: the Invalid Preset message carries no markup ({_s235_msgs!r})")
+        # 235g: importing the same file twice asks to overwrite it by name.
+        _s235_imp = _s235_dir / "<b>imp.json"
+        _s235_imp.write_text(json.dumps({"_format": "scaffold_preset", "_tool": "t235"}),
+                             encoding="utf-8")
+        _s235_dest = scaffold._presets_dir("t235") / "<b>imp.json"
+        _s235_qs = []
+        _s235_saved_q = QMessageBox.question
+        QMessageBox.question = staticmethod(
+            lambda *a, **kw: _s235_qs.append(a[2]) or QMessageBox.StandardButton.No)
+        QFileDialog.getOpenFileName = staticmethod(lambda *a, **kw: (str(_s235_imp), ""))
+        try:
+            _s235_win._on_import_preset()
+            _s235_win._on_import_preset()
+        finally:
+            QMessageBox.question = _s235_saved_q
+            _s235_dest.unlink(missing_ok=True)
+        check(len(_s235_qs) == 1 and "Overwrite" in _s235_qs[0] and "<b>" not in _s235_qs[0],
+              f"235g: the Overwrite Preset question carries no markup ({_s235_qs!r})")
 finally:
     QMessageBox.warning = _s235_saved_warn
     QFileDialog.getOpenFileName = _s235_saved_open
+_s235_win.close()
+_s235_win.deleteLater()
+app.processEvents()
+
+# 235f: a required argument's name, shown in the "Required:" status line
+_s235_req = _s235_dir / "r235.json"
+_s235_req.write_text(json.dumps({
+    "tool": "r235", "binary": "r235", "description": "d",
+    "arguments": [{"name": "<b>r</b>", "flag": "--r", "type": "string", "required": True}],
+}), encoding="utf-8")
+_s235_win = scaffold.MainWindow(tool_path=str(_s235_req))
+app.processEvents()
+_s235_win._update_preview()
+check("<b>r</b>" in _s235_win.status.text()
+      and _s235_win.status.textFormat() == Qt.TextFormat.PlainText,
+      f"235f: the Required status line is plain text ({_s235_win.status.text()!r})")
 _s235_win.close()
 _s235_win.deleteLater()
 app.processEvents()
