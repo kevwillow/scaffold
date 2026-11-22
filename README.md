@@ -45,7 +45,7 @@ It's a single Python file with one dependency (PySide6). There's no telemetry an
 ### Quick install
 
 ```bash
-pip install git+https://github.com/kevwillow/scaffold.git@v2.14.0
+pip install git+https://github.com/kevwillow/scaffold.git@v2.14.1
 ```
 
 This installs `scaffold` as a shell command. Launch the GUI with:
@@ -60,7 +60,7 @@ scaffold
 environment so they don't conflict with your system Python:
 
 ```bash
-pipx install git+https://github.com/kevwillow/scaffold.git@v2.14.0
+pipx install git+https://github.com/kevwillow/scaffold.git@v2.14.1
 ```
 
 ### From source (for development)
@@ -491,7 +491,7 @@ I built Scaffold the way a real team would build software, just with an AI writi
 
 1. **Architecture first.** It started with a design document for the widget type system, the schema format and the command assembly pipeline, before any code was written.
 2. **Staged deliverables.** It was built in phases: core engine, widget rendering, command execution, presets, subcommands, dark mode, elevated execution, UI polish, and the schema generation prompt.
-3. **Tests alongside features.** Tests were planned with each stage instead of added at the end. The suites (4,045 assertions across 6 suites) were written to check each feature as it was delivered.
+3. **Tests alongside features.** Tests were planned with each stage instead of added at the end. The suites (4,144 assertions across 6 suites) were written to check each feature as it was delivered.
 4. **Code review cycles.** Once the core was stable, the code went through several review passes: cleanup, an error-handling audit, performance profiling and linting.
 5. **A lot of iteration.** Most features took several rounds of build, test and fix. The dark mode scrollbar alone went through QSS, then QProxyStyle, and finally native `setColorScheme` before it worked right.
 6. **Manual QA on every release.** I tested every version by hand on real tools before tagging it.
