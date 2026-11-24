@@ -52,3 +52,29 @@ include = ["scaffold_data*"]
 
 [tool.setuptools.package-data]
 scaffold_data = ["**/*.json", "**/*.txt", "**/*.md"]
+
+[tool.coverage.run]
+# CI's coverage job measures scaffold.py across all six suites, including
+# the headless `scaffold.py --run-cascade` subprocesses the suites start
+# and the regex capture worker pool.
+include = ["scaffold.py"]
+branch = true
+parallel = true
+patch = ["subprocess"]
+concurrency = ["thread", "multiprocessing"]
+sigterm = true
+
+[tool.coverage.report]
+precision = 1
+# Conservative floor: the real number from CI is higher. Raise this toward
+# the reported total once a green CI run establishes it; it only ratchets up.
+fail_under = 55
+
+[tool.mypy]
+# CI runs mypy through .github/scripts/check_types.py, which checks
+# scaffold.py against Python 3.10 and compares the result with
+# .github/mypy-baseline.txt.
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unused_configs = true
