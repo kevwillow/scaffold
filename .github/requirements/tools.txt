@@ -6,11 +6,11 @@
 #
 actionlint-py==1.7.12.25 \
     --hash=sha256:83f83be4cd317c79b15cbb7022787513a6994f00bfb2dd8da02fa4e62b4f640d
-    # via -r .github/requirements/tools.in
+    # via -r tools.in
 bandit==1.9.4 \
     --hash=sha256:b589e5de2afe70bd4d53fa0c1da6199f4085af666fde00e8a034f152a52cd628 \
     --hash=sha256:f89ffa663767f5a0585ea075f01020207e966a9c0f2b9ef56a57c7963a3f6f8e
-    # via -r .github/requirements/tools.in
+    # via -r tools.in
 boolean-py==5.0 \
     --hash=sha256:60cbc4bad079753721d32649545505362c754e121570ada4658b852a3a318d95 \
     --hash=sha256:ef28a70bd43115208441b53a045d1549e2f0ec6e3d08a9d142cbc41c1938e8d9
@@ -18,7 +18,7 @@ boolean-py==5.0 \
 build==1.6.1 \
     --hash=sha256:51cc11666391ab6f092070437ac747002ff46f3e4113a3622177ee6b488bfc53 \
     --hash=sha256:ecd351a4be9d35a9eaaba244a7687143c9c7d4aea6ac964e7e7ddab20cbcf4e7
-    # via -r .github/requirements/tools.in
+    # via -r tools.in
 cachecontrol==0.14.4 \
     --hash=sha256:b7ac014ff72ee199b5f8af1de29d60239954f223e948196fa3d84adaffc71d2b \
     --hash=sha256:e6220afafa4c22a47dd0badb319f84475d79108100d04e26e8542ef7d3ab05a1
@@ -571,7 +571,7 @@ pip-api==0.0.35 \
 pip-audit==2.10.1 \
     --hash=sha256:1eb4565d19ebe5d48996f4b770b4d2b32887e12cb12cfa637f1a064011b55ffc \
     --hash=sha256:99ef3f600a317c1945f1e89e227ef26e1c2d618429b8bd3fa6f4f7c440c4611a
-    # via -r .github/requirements/tools.in
+    # via -r tools.in
 pip-requirements-parser==32.0.1 \
     --hash=sha256:4659bc2a667783e7a15d190f6fccf8b2486685b6dba4c19c3876314769c57526 \
     --hash=sha256:b4fa3a7a0be38243123cf9d1f3518da10c51bdb165a2b2985566247f9155a7d3
@@ -704,26 +704,26 @@ rich==15.0.0 \
     #   bandit
     #   pip-audit
     #   twine
-ruff==0.17.1 \
-    --hash=sha256:056c5d5fa0ac790051ae165d7035c7bf956d02de2db557f2e9b31d877a505fca \
-    --hash=sha256:1796c41eafec66f4635125dd1e074a7aa27b8d20c187d484360acf11d247fc4a \
-    --hash=sha256:1de0030a8aa78c65c5fecb84b2e5c390ac684c0452875a02afc7c083d49a496a \
-    --hash=sha256:29b454f18ca3eeaf37fbf140841dcf27d36109e29dee9aae8acecb68c26c6f74 \
-    --hash=sha256:42400b9a6ff8515ff27796f07f92e0195be011c86e81e381606f58ea5502fef4 \
-    --hash=sha256:4c0d6cb5f8fbac77eec9af49f4fc0eaf856b05545e372b0694d24b4e76b1c640 \
-    --hash=sha256:5bb796c5112e9fb9527f2ef2faa0a130d6312d19de92bcfaddd70dbb2d41020f \
-    --hash=sha256:5df76f16580fab58d0f6c98a3ac254a4abceb7b2489b8b678335869cff77b3d7 \
-    --hash=sha256:684154861a819bf1f433669d2a0ce9c3e54677c65b8ebb866cc2a7ec86345785 \
-    --hash=sha256:78beced4a3c94dfedbee4b999b95b6a27b35820fdc0afbacc6d37a8da26c1cd1 \
-    --hash=sha256:7feefc63921202894f0e158b0e32f45a5950d70a7fb693ccb9264816c25b1c05 \
-    --hash=sha256:80e53b0e5faa3c5667f035daaa032893ae42b7cfe708c886d39ed131e54688ab \
-    --hash=sha256:872e03dd231744d6c5ec5c8af6be52b71323fc6ee096e4c8b34d9f844ee3b978 \
-    --hash=sha256:8eadb09a788010be29c895418bdfa513e4e1c65e64b94e5b19e4cd381f6cc7fb \
-    --hash=sha256:8f9aa5b5bd5fa1937803ea609c8f153b8de39bf3e0e149897ae34b0c5b52f467 \
-    --hash=sha256:a6ef98e51de8ef38082f90653ceeb84944bd7673783eea13e1647c5b9b064189 \
-    --hash=sha256:bd8f5a55b10f371642eacd0e8665a42a8b97da15c9a7187c79e697b77b5e0ce4 \
-    --hash=sha256:ce05e6f3973611d9550a600e04bb531061e368baba31610eb57c1509a8f21a0a
-    # via -r .github/requirements/tools.in
+ruff==0.17.6 \
+    --hash=sha256:0692088e6b33455572fb18465e891b443f196e98dc1986825685c77ff6f4c5ac \
+    --hash=sha256:084d9c8f5ec718e7eba007dba339e7cb4f7571d2f267558ae080bf428fb6a69b \
+    --hash=sha256:1939b3d701c7b6981b7cf93473de5bf88b129b9ba84efaed5154cc517c44634d \
+    --hash=sha256:1a0bea6aa1216e0ec4cd35d3dbccec0d772a7c2aad28ec9c6e82571dff2c20b0 \
+    --hash=sha256:2b04276561331300325040bdca21460770029ec574d4c479099e39e8ad1ed43c \
+    --hash=sha256:3db61f5015600543a581b07fa7f6f64afa0eeedefe16034cadd88c4074087582 \
+    --hash=sha256:435241c61af5909a022f76219d3d1bf24730dc1bf0acabb5ddf4b569ab3cbb30 \
+    --hash=sha256:6a12c50a33936dc00db2be21ba25fb168a8b95c55eda2a3ac85005af69885e4b \
+    --hash=sha256:9cd2fd9923e9806b8b6b67a3469e2258e84bd4d21e45d5a1a690afdfb9c8e57d \
+    --hash=sha256:9d44ef2140402043fd6f689ef541858b80883a8b0a02e38539ef0614ebe57d0c \
+    --hash=sha256:9fbddc08577592e283c265d865e0182de6e33db185494db7b06290d989d888e5 \
+    --hash=sha256:aa3b08254a732acba246891089a152c47c5733dc36b8ecb76ce8602f8326e5e4 \
+    --hash=sha256:b5aba93b3db4b70c5697e4fee6e0d5b9c8452a9a3a03679611cadc25915a2173 \
+    --hash=sha256:c2f4af6670b7a0501904e881bb3f1f24bd0d964dec1eedbd85f0eb73786e1128 \
+    --hash=sha256:d006bbb2945edb17b0ce6a0c1b5f5a8d81ba11dbac294a0a925effa22ce34feb \
+    --hash=sha256:d8b14e1473dc86ab9069cf7a2ba5041dc012f59110201844ed04cfddf07055a0 \
+    --hash=sha256:fb589e032806bb942e4fb526f30b80a1a64112147ed9f1d38cc3de2e255b6f45 \
+    --hash=sha256:fd661702202a89c00a4c9d0339008805fa5876bfa1c57e165495c2e62230dfbf
+    # via -r tools.in
 secretstorage==3.5.0 \
     --hash=sha256:0ce65888c0725fcb2c5bc0fdb8e5438eece02c523557ea40ce0703c266248137 \
     --hash=sha256:f04b8e4689cbce351744d5537bf6b1329c6fc68f91fa666f60a380edddcd11be
@@ -810,7 +810,7 @@ tomli-w==1.2.0 \
 twine==7.0.0 \
     --hash=sha256:85cdb29c518efef867360ae4acd4b0dfd61c8654a22fca08e6f8539f05022177 \
     --hash=sha256:b854164df26db268af05f49aa5c0344b10e27a494343ff05b1e0bad3b135f5a7
-    # via -r .github/requirements/tools.in
+    # via -r tools.in
 urllib3==2.8.0 \
     --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3 \
     --hash=sha256:63bf2ead4c879426ebf22ef2a781eeb4aa3b4ae798a0435506f8687fd5bb9b63
@@ -818,19 +818,20 @@ urllib3==2.8.0 \
     #   id
     #   requests
     #   twine
-zizmor==1.31.1 \
-    --hash=sha256:385732e55ca152a013b0863213b67be32f94157775354b8ad23cc9c5d70cdc82 \
-    --hash=sha256:3b35b393e8d437e275c7e399047c9892ccc290f3fc5e6aeb9f65a5d3b2a470e0 \
-    --hash=sha256:4a70ee3c2721122aff04d5bbad5e448d15384f45de2ecb3c9493fe9dac2bc95f \
-    --hash=sha256:58e878eb2dbd2c6183c105e1ac28c14f7dd1eca44a783f1fe2a69647d012c410 \
-    --hash=sha256:9696d3c10919a3a2eb086c102f1bc10717f53ef3700a0d6c55a709c274995476 \
-    --hash=sha256:c5ccb17fd820bb1ddc63cc9a715e97c063025487e585f640389a86d9dfc97cda \
-    --hash=sha256:d1d2cdc23e7b11f2d6cbda0df3bee62ee7993a60647650f51c316ccd33365469 \
-    --hash=sha256:d8a5f86fbf93e65e9d42de9eb4c1855d195c5e9cdeef4f228093ad6711bd8ee4 \
-    --hash=sha256:d9b36840c560a8abe39d9ef3d077239aabf6d572c5c2b629c970592a617dbf6f \
-    --hash=sha256:e7fdf82d31cc67eb1d5030bf2372b25ee2a1c3ad05017e18da70ed138c4accd6 \
-    --hash=sha256:eb9c8a3e2c1080810fdb68bc36717b2a9d61283bb98e3a48689f5a852fc48e9f
-    # via -r .github/requirements/tools.in
+zizmor==1.32.0 \
+    --hash=sha256:0a999c98015becd9f69919ce01febadfb1c2be9b8ec2ce9ef7eb13ff23ba8eba \
+    --hash=sha256:0cdd38fca6eb34ceb567548548d706332e3535ea66894b9168c048e03207b68c \
+    --hash=sha256:3f404b26791ed06a5ea9eaa0bfd5b973fc5228bac7db8b3c5ec7f0c7ad2ed16d \
+    --hash=sha256:84a6acb975accc13408786a2bd274b572537ca19c933ebbc13e78f3988562071 \
+    --hash=sha256:913fd3943bc1358aa6e23b33fe01cc98bf67af23985258b8fbf24eaa2f8728ea \
+    --hash=sha256:9cd1dd7734042f40ca0faa2a31fb4e9033dede620d996af2f903744b8f04fca9 \
+    --hash=sha256:aa4b4e216321dd5cf202cd79fc83296468f0eed79d850cd65ac8187a6bbc5496 \
+    --hash=sha256:bddcdb0e37d1aa53c9f831c55627a5829d0d552cb0afb4b80fbe16a3a3140366 \
+    --hash=sha256:d34dcfa702875202b4163d90ebb9cc5222f3d1a7d4b72bf796d87b5a15b24194 \
+    --hash=sha256:dd818f99d833b86cd432d5412d620d936b5df074b33404fff8b67acff55d3259 \
+    --hash=sha256:eaedf57859f026a0a7da2a6b574517b1fe01e256c6875b3319a06ee1cee026a7 \
+    --hash=sha256:f0b664d394576e08605fe8094e8e992056d74b808f30c0c9ca9ed227001dcf67
+    # via -r tools.in
 
 # The following packages are considered to be unsafe in a requirements file:
 pip==26.2.1 \
